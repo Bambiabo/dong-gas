@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 export default function OwnerDashboard() {
@@ -11,8 +11,8 @@ export default function OwnerDashboard() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    // Simple secure PIN validation gate (can be linked to owner_settings table)
-    if (pin === "1234") {
+    // Configurable Owner PIN gate (matches 7788)
+    if (pin === "7788") {
       setIsAuthenticated(true);
       fetchShifts();
     } else {
@@ -60,7 +60,7 @@ export default function OwnerDashboard() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold">Owner Financial Audit</h1>
-          <p className="text-xs text-slate-400">Real-time breakdown of cash drops, MoMo collections, and shift variances.</p>
+          <p className="text-xs text-slate-400">Real-time breakdown of cash drops, MoMo collections, and shift metrics.</p>
         </div>
         <button
           onClick={() => setIsAuthenticated(false)}
@@ -78,7 +78,7 @@ export default function OwnerDashboard() {
             <thead className="bg-slate-950 text-slate-400 uppercase text-xs border-b border-slate-800">
               <tr>
                 <th className="p-4">Date</th>
-                <th className="p-4">Supervisor</th>
+                <th className="p-4">Supervisor / Record</th>
                 <th className="p-4">Liters Sold</th>
                 <th className="p-4">Cash (GHS)</th>
                 <th className="p-4">MoMo (GHS)</th>
@@ -88,31 +88,46 @@ export default function OwnerDashboard() {
               </tr>
             </thead>
             <tbody>
-              {shifts.map((shift) => (
-                <tr key={shift.id} className="border-b border-slate-800 hover:bg-slate-850">
-                  <td className="p-4">{new Date(shift.created_at).toLocaleDateString()}</td>
-                  <td className="p-4 font-medium text-white">{shift.supervisor_name}</td>
-                  <td className="p-4">{shift.liters_sold?.toLocaleString()} L</td>
-                  <td className="p-4 text-emerald-400">₵{shift.cash_collected?.toFixed(2)}</td>
-                  <td className="p-4 text-cyan-400">₵{shift.momo_collected?.toFixed(2)}</td>
-                  <td className="p-4 font-bold text-white">₵{shift.total_collected?.toFixed(2)}</td>
-                  <td className={`p-4 font-semibold ${shift.variance < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                    ₵{shift.variance?.toFixed(2)}
-                  </td>
-                  <td className="p-4">
-                    {shift.proof_image && (
-                      <a
-                        href={shift.proof_image}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-cyan-400 underline hover:text-cyan-300"
-                      >
-                        View Photo
-                      </a>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {shifts.map((shift) => {
+                // Compute metrics safely from columns present in DB
+                const openM = shift.opening_meter || 0;
+                const closeM = shift.closing_meter || 0;
+                const price = shift.fuel_price || 10.40;
+                const litersSold = Math.max(0, closeM - openM);
+                const expectedRevenue = litersSold * price;
+                const cash = shift.cash_collected || 0;
+                const momo = shift.momo_collected || 0;
+                const totalCollected = cash + momo;
+                const variance = totalCollected - expectedRevenue;
+
+                return (
+                  <tr key={shift.id || shift.created_at} className="border-b border-slate-800 hover:bg-slate-850">
+                    <td className="p-4">{shift.created_at ? new Date(shift.created_at).toLocaleDateString() : "N/A"}</td>
+                    <td className="p-4 font-medium text-white">{shift.supervisor_name || "Shift Operator"}</td>
+                    <td className="p-4">{litersSold.toLocaleString()} L</td>
+                    <td className="p-4 text-emerald-400">₵{cash.toFixed(2)}</td>
+                    <td className="p-4 text-cyan-400">₵{momo.toFixed(2)}</td>
+                    <td className="p-4 font-bold text-white">₵{totalCollected.toFixed(2)}</td>
+                    <td className={`p-4 font-semibold ${variance < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      ₵{variance.toFixed(2)}
+                    </td>
+                    <td className="p-4">
+                      {shift.proof_image ? (
+                        <a
+                          href={shift.proof_image}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-cyan-400 underline hover:text-cyan-300"
+                        >
+                          View Photo
+                        </a>
+                      ) : (
+                        <span className="text-xs text-slate-500">No Photo</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {shifts.length === 0 && (
                 <tr>
                   <td colSpan={8} className="text-center py-8 text-slate-500">No shift records found.</td>
