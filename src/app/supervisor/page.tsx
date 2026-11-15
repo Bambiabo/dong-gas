@@ -6,14 +6,12 @@ import { supabase } from "@/lib/supabase";
 export default function SupervisorTerminal() {
   const [shiftStage, setShiftStage] = useState<"OPENING" | "CLOSING">("OPENING");
   
-  // Opening fields
   const [supervisorName, setSupervisorName] = useState("");
   const [fuelPrice, setFuelPrice] = useState("10.40");
   const [openingMeter, setOpeningMeter] = useState("");
   const [openingImage, setOpeningImage] = useState<string | null>(null);
   const [isLoadingPrevious, setIsLoadingPrevious] = useState(false);
 
-  // Closing fields
   const [closingMeter, setClosingMeter] = useState("");
   const [cashCollected, setCashCollected] = useState("");
   const [momoCollected, setMomoCollected] = useState("");
@@ -81,7 +79,7 @@ export default function SupervisorTerminal() {
       }
     } catch (err) {
       console.error("Camera error:", err);
-      alert("Could not open camera. Please allow camera permissions.");
+      alert("Could not open camera.");
       setCameraActive(false);
     }
   };
@@ -113,9 +111,9 @@ export default function SupervisorTerminal() {
 
       if (numbersOnly.length > 0) {
         setScannedPreviewValue(numbersOnly);
-        setMessage("✓ OCR scan complete. Verify or edit before applying.");
+        setMessage("✓ OCR scan complete.");
       } else {
-        setMessage("⚠️ Could not read numbers. Enter manually.");
+        setMessage("⚠️ Enter meter value manually.");
       }
     } catch (err) {
       console.error("OCR Error:", err);
@@ -199,8 +197,10 @@ export default function SupervisorTerminal() {
         return;
       }
 
+      // Send both supervisor_name and supervisor to ensure compatibility
       const payload = {
         supervisor_name: supervisorName.trim(),
+        supervisor: supervisorName.trim(),
         fuel_price: price,
         opening_meter: openM,
         closing_meter: closeM,
@@ -225,7 +225,7 @@ export default function SupervisorTerminal() {
       setClosingImage(null);
     } catch (err: any) {
       console.error("Supabase insert error:", err);
-      setMessage(`Error: ${err.message}`);
+      alert(`Error: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -271,7 +271,7 @@ export default function SupervisorTerminal() {
                   <button
                     type="button"
                     onClick={toggleCameraFacing}
-                    className="absolute top-2 right-2 bg-slate-950/90 text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 shadow-md backdrop-blur-sm"
+                    className="absolute top-2 right-2 bg-slate-950/90 text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 shadow-md"
                   >
                     Switch 🔄
                   </button>
