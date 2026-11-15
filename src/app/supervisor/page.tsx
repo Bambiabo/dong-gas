@@ -20,6 +20,11 @@ export default function SupervisorTerminal() {
 
   const startCamera = async (rear: boolean) => {
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        alert("Camera API not supported on this browser. Please use the file upload option below.");
+        return;
+      }
+
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach((track) => track.stop());
@@ -36,14 +41,14 @@ export default function SupervisorTerminal() {
     } catch (err) {
       try {
         const fallbackStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: rear ? "environment" : "user" },
+          video: true,
         });
         if (videoRef.current) {
           videoRef.current.srcObject = fallbackStream;
           setCameraActive(true);
         }
       } catch (fallbackErr) {
-        alert("Unable to access camera. Please check permissions.");
+        alert("Could not access camera hardware. Please use the file upload button below.");
       }
     }
   };
@@ -66,10 +71,21 @@ export default function SupervisorTerminal() {
     }
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCapturedImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleSubmitShift = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!capturedImage) {
-      alert("Live meter photo proof is required.");
+      alert("Live meter photo proof or image upload is required.");
       return;
     }
 
@@ -130,7 +146,7 @@ export default function SupervisorTerminal() {
       <h1 className="text-xl font-bold mb-1">Dong Gas — Shift Supervisor</h1>
       <p className="text-xs text-slate-400 mb-4">Secure Meter Reconciliation & Payment Logging</p>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 space-y-3">
         {!cameraActive ? (
           <button
             type="button"
@@ -160,8 +176,20 @@ export default function SupervisorTerminal() {
             </button>
           </div>
         )}
+
+        {/* Fallback File Upload for Desktop or Restricted Cameras */}
+        <div className="border-t border-slate-800 pt-3">
+          <label className="block text-xs text-slate-400 mb-1">Or Upload Meter Photo from Device</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-cyan-400 hover:file:bg-slate-700"
+          />
+        </div>
+
         {capturedImage && (
-          <p className="text-xs text-emerald-400 mt-2 font-medium">✓ Photo proof captured successfully.</p>
+          <p className="text-xs text-emerald-400 mt-1 font-medium">✓ Photo proof loaded successfully.</p>
         )}
       </div>
 
