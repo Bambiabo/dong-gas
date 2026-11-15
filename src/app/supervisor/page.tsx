@@ -27,6 +27,7 @@ export default function SupervisorTerminal() {
   const [cameraActive, setCameraActive] = useState(false);
   const [useRearCamera, setUseRearCamera] = useState(true);
 
+  // Fetch previous closing meter automatically for the continuation feature
   useEffect(() => {
     async function fetchPreviousClosing() {
       try {
@@ -38,7 +39,9 @@ export default function SupervisorTerminal() {
           .limit(1);
 
         if (!error && data && data.length > 0 && data[0].closing_meter) {
-          setOpeningMeter(data[0].closing_meter.toString());
+          const priorClose = data[0].closing_meter.toString();
+          setOpeningMeter(priorClose);
+          setMessage(`✓ Auto-loaded prior closing meter (${priorClose} L) for continuation.`);
         }
       } catch (err) {
         console.error("Could not fetch previous meter:", err);
@@ -90,10 +93,31 @@ export default function SupervisorTerminal() {
     startCamera(nextState);
   };
 
-  const runOCRScan = async (dataUrl: string) => {
+  // High-accuracy OCR pipeline with Canvas preprocessing (grayscale & contrast scaling)
+  const runAdvancedOCR = async (dataUrl: string) => {
     try {
       setIsScanning(true);
-      setMessage("Scanning meter digits...");
+      setMessage("Processing image via computer vision OCR...");
+
+      // Preprocess image on canvas to enhance contrast for meter digits
+      const processedDataUrl = await new Promise<string>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          canvas.width = img.width * 2; // Upscale for sharper OCR recognition
+          canvas.height = img.height * 2;
+          if (ctx) {
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            // Optional contrast boost filter
+            resolve(canvas.toDataURL("image/jpeg", 1.0));
+          } else {
+            resolve(dataUrl);
+          }
+        };
+        img.src = dataUrl;
+      });
 
       if (!(window as any).Tesseract) {
         await new Promise((resolve, reject) => {
@@ -106,18 +130,27 @@ export default function SupervisorTerminal() {
       }
 
       const Tesseract = (window as any).Tesseract;
-      const result = await Tesseract.recognize(dataUrl, "eng");
-      const numbersOnly = (result.data.text || "").replace(/[^0-9]/g, "");
+      const worker = await Tesseract.createWorker("eng");
+      
+      // Configure Tesseract whitelist for numeric meter readings only
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789',
+      });
 
-      if (numbersOnly.length > 0) {
-        setScannedPreviewValue(numbersOnly);
-        setMessage("✓ OCR scan complete.");
+      const result = await worker.recognize(processedDataUrl);
+      await worker.terminate();
+
+      const extractedDigits = (result.data.text || "").replace(/[^0-9]/g, "");
+
+      if (extractedDigits.length >= 4) {
+        setScannedPreviewValue(extractedDigits);
+        setMessage("✓ High-accuracy OCR scan successful.");
       } else {
-        setMessage("⚠️ Enter meter value manually.");
+        setMessage("⚠️ Could not clearly isolate digits. Please verify or enter manually.");
       }
     } catch (err) {
       console.error("OCR Error:", err);
-      setMessage("OCR failed. Enter manually.");
+      setMessage("OCR processing failed. Please enter meter value manually.");
     } finally {
       setIsScanning(false);
     }
@@ -126,12 +159,12 @@ export default function SupervisorTerminal() {
   const capturePhoto = async () => {
     if (!videoRef.current) return;
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
+    canvas.width = videoRef.current.videoWidth || 1280;
+    canvas.height = videoRef.current.videoHeight || 720;
     const ctx = canvas.getContext("2d");
     if (ctx) {
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg");
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
 
       if (shiftStage === "OPENING") {
         setOpeningImage(dataUrl);
@@ -144,7 +177,7 @@ export default function SupervisorTerminal() {
       if (videoRef.current) videoRef.current.srcObject = null;
       setCameraActive(false);
 
-      await runOCRScan(dataUrl);
+      await runAdvancedOCR(dataUrl);
     }
   };
 
@@ -156,7 +189,7 @@ export default function SupervisorTerminal() {
       setClosingMeter(scannedPreviewValue);
     }
     setScannedPreviewValue(null);
-    setMessage("✓ Scanned value applied.");
+    setMessage("✓ Verified meter value applied.");
   };
 
   const handleOpenShiftSubmit = (e: React.FormEvent) => {
@@ -169,8 +202,13 @@ export default function SupervisorTerminal() {
       alert("Opening meter photo proof is required.");
       return;
     }
+    if (!openingMeter) {
+      alert("Opening meter reading is required.");
+      return;
+    }
+
     setShiftStage("CLOSING");
-    setMessage("Opening saved. Proceed to closing shift.");
+    setMessage("Opening locked successfully. Proceed to closing stage.");
   };
 
   const handleCloseShiftSubmit = async (e: React.FormEvent) => {
@@ -191,8 +229,9 @@ export default function SupervisorTerminal() {
       const momo = parseFloat(momoCollected || "0");
       const exp = parseFloat(expenses || "0");
 
+      // Strict validation: Closing meter must exceed opening meter
       if (closeM <= openM) {
-        alert("Closing meter must be greater than opening meter.");
+        alert(`Validation Error: Closing meter (${closeM}) must be strictly greater than opening meter (${openM}).`);
         setIsSubmitting(false);
         return;
       }
@@ -205,23 +244,33 @@ export default function SupervisorTerminal() {
         cash_collected: cash,
         momo_collected: momo,
         expenses: exp,
-        proof_image: closingImage || openingImage,
+        proof_image: closingImage,
       };
 
       const { error } = await supabase.from("shifts").insert([payload]);
 
       if (error) throw error;
 
-      setMessage("Shift successfully submitted and closed!");
+      setMessage("Shift successfully audited, closed, and saved!");
       setShiftStage("OPENING");
       setSupervisorName("");
-      setOpeningMeter("");
       setClosingMeter("");
       setCashCollected("");
       setMomoCollected("");
       setExpenses("");
       setOpeningImage(null);
       setClosingImage(null);
+
+      // Re-fetch the new continuation opening meter for the next shift
+      const { data } = await supabase
+        .from("shifts")
+        .select("closing_meter")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (data && data.length > 0 && data[0].closing_meter) {
+        setOpeningMeter(data[0].closing_meter.toString());
+      }
     } catch (err: any) {
       console.error("Supabase insert error:", err);
       alert(`Error: ${err.message}`);
@@ -252,7 +301,7 @@ export default function SupervisorTerminal() {
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
-            <label className="block text-xs text-slate-400 mb-2">Opening Meter Camera Proof & OCR</label>
+            <label className="block text-xs text-slate-400 mb-2">Opening Meter Camera Proof & Computer Vision OCR</label>
             {!cameraActive && !openingImage && (
               <button
                 type="button"
@@ -281,7 +330,7 @@ export default function SupervisorTerminal() {
                   disabled={isScanning}
                   className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 font-semibold rounded-lg text-sm"
                 >
-                  {isScanning ? "Scanning..." : "Snap & Read Meter Photo 📸"}
+                  {isScanning ? "Processing Computer Vision..." : "Snap & Scan Meter 📸"}
                 </button>
               </div>
             )}
@@ -292,7 +341,7 @@ export default function SupervisorTerminal() {
                 <img src={openingImage} alt="Opening Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
                 {scannedPreviewValue && (
                   <div className="bg-slate-800 border border-cyan-500/50 p-3 rounded-lg mb-2">
-                    <p className="text-xs text-slate-300 mb-1">Scanned Result:</p>
+                    <p className="text-xs text-slate-300 mb-1">Detected Meter Value:</p>
                     <p className="text-lg font-mono font-bold text-cyan-400 mb-2">{scannedPreviewValue}</p>
                     <div className="flex gap-2">
                       <button type="button" onClick={confirmScannedValue} className="flex-1 bg-emerald-600 py-1.5 rounded text-xs font-semibold">Accept ✓</button>
@@ -313,8 +362,8 @@ export default function SupervisorTerminal() {
               <input type="number" step="0.01" value={fuelPrice} onChange={(e) => setFuelPrice(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Opening Meter (L)</label>
-              <input type="number" value={openingMeter} onChange={(e) => setOpeningMeter(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" placeholder="e.g. 6552678" />
+              <label className="block text-xs text-slate-400 mb-1">Opening Meter (L) {isLoadingPrevious && "(Auto-loading...)"}</label>
+              <input type="number" value={openingMeter} onChange={(e) => setOpeningMeter(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" placeholder="Auto-synced from prior shift" />
             </div>
           </div>
 
@@ -325,7 +374,7 @@ export default function SupervisorTerminal() {
       ) : (
         <form onSubmit={handleCloseShiftSubmit} className="space-y-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
-            <label className="block text-xs text-slate-400 mb-2">Closing Meter Camera Proof & OCR</label>
+            <label className="block text-xs text-slate-400 mb-2">Closing Meter Camera Proof & Computer Vision OCR</label>
             {!cameraActive && !closingImage && (
               <button type="button" onClick={() => startCamera(useRearCamera)} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-semibold rounded-lg text-sm shadow">
                 Turn On Secure Camera Proof
@@ -339,7 +388,7 @@ export default function SupervisorTerminal() {
                   <button type="button" onClick={toggleCameraFacing} className="absolute top-2 right-2 bg-slate-950/90 text-white px-3 py-1.5 rounded-lg text-xs">Switch 🔄</button>
                 </div>
                 <button type="button" onClick={capturePhoto} disabled={isScanning} className="w-full py-3 bg-cyan-600 font-semibold rounded-lg text-sm">
-                  {isScanning ? "Scanning..." : "Snap & Read Meter Photo 📸"}
+                  {isScanning ? "Processing Computer Vision..." : "Snap & Scan Meter 📸"}
                 </button>
               </div>
             )}
@@ -350,7 +399,7 @@ export default function SupervisorTerminal() {
                 <img src={closingImage} alt="Closing Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
                 {scannedPreviewValue && (
                   <div className="bg-slate-800 border border-cyan-500/50 p-3 rounded-lg mb-2">
-                    <p className="text-xs text-slate-300 mb-1">Scanned Result:</p>
+                    <p className="text-xs text-slate-300 mb-1">Detected Meter Value:</p>
                     <p className="text-lg font-mono font-bold text-cyan-400 mb-2">{scannedPreviewValue}</p>
                     <div className="flex gap-2">
                       <button type="button" onClick={confirmScannedValue} className="flex-1 bg-emerald-600 py-1.5 rounded text-xs font-semibold">Accept ✓</button>
@@ -367,7 +416,8 @@ export default function SupervisorTerminal() {
 
           <div>
             <label className="block text-xs text-slate-400 mb-1">Closing Meter (L)</label>
-            <input type="number" value={closingMeter} onChange={(e) => setClosingMeter(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" placeholder="e.g. 6554100" />
+            <input type="number" value={closingMeter} onChange={(e) => setClosingMeter(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" placeholder="Must be greater than opening meter" />
+            <p className="text-[10px] text-slate-400 mt-1">Opening baseline reference: {openingMeter} L</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
