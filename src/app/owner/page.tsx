@@ -17,6 +17,7 @@ interface ShiftRecord {
   closing_meter: number;
   liters_sold: number;
   total_sales: number;
+  expenses: number;
   cash_declared: number;
   variance: number;
   opening_photo_url: string;
@@ -55,7 +56,7 @@ export default function OwnerDashboard() {
           <div>
             <h1 className="text-2xl font-black tracking-tight text-white">Dong Gas — Owner Dashboard</h1>
             <p className="text-slate-400 text-xs mt-1">
-              Live anti-fraud shift audits, blind drop cash reconciliation, and photo proofs.
+              Live anti-fraud shift audits, blind drop cash reconciliation, and expense tracking.
             </p>
           </div>
           <button
@@ -76,10 +77,9 @@ export default function OwnerDashboard() {
                   <th className="p-4">Closing Time</th>
                   <th className="p-4">Supervisor</th>
                   <th className="p-4">Status</th>
-                  <th className="p-4">Opening (L)</th>
-                  <th className="p-4">Closing (L)</th>
                   <th className="p-4">Sold (L)</th>
                   <th className="p-4">Expected Sales</th>
+                  <th className="p-4">Expenses</th>
                   <th className="p-4">Cash Declared</th>
                   <th className="p-4">Variance</th>
                   <th className="p-4 text-center">Photo Proofs</th>
@@ -88,13 +88,13 @@ export default function OwnerDashboard() {
               <tbody className="divide-y divide-slate-800/60">
                 {loading ? (
                   <tr>
-                    <td colSpan={11} className="p-8 text-center text-slate-500 animate-pulse">
+                    <td colSpan={10} className="p-8 text-center text-slate-500 animate-pulse">
                       Loading shift records...
                     </td>
                   </tr>
                 ) : shifts.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="p-8 text-center text-slate-500">
+                    <td colSpan={10} className="p-8 text-center text-slate-500">
                       No shift records found yet.
                     </td>
                   </tr>
@@ -134,11 +134,12 @@ export default function OwnerDashboard() {
                             {shift.status}
                           </span>
                         </td>
-                        <td className="p-4 text-sky-400 font-mono">{shift.opening_meter ?? "—"}</td>
-                        <td className="p-4 text-emerald-400 font-mono">{shift.closing_meter ?? "—"}</td>
                         <td className="p-4 font-mono">{shift.liters_sold ?? "—"}</td>
                         <td className="p-4 font-mono text-slate-200">
                           GHS {(shift.total_sales || 0).toFixed(2)}
+                        </td>
+                        <td className="p-4 font-mono text-amber-400 font-semibold">
+                          {shift.status === "open" ? "—" : `GHS ${(shift.expenses || 0).toFixed(2)}`}
                         </td>
                         <td className="p-4 font-mono text-white font-semibold">
                           GHS {(shift.cash_declared || 0).toFixed(2)}
@@ -201,7 +202,7 @@ export default function OwnerDashboard() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Opening Photo Card */}
+                {/* Opening Photo */}
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
                   <div className="flex justify-between text-xs font-semibold text-sky-400">
                     <span>Opening Meter Proof</span>
@@ -223,7 +224,7 @@ export default function OwnerDashboard() {
                   </p>
                 </div>
 
-                {/* Closing Photo Card */}
+                {/* Closing Photo */}
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
                   <div className="flex justify-between text-xs font-semibold text-emerald-400">
                     <span>Closing Meter Proof</span>
@@ -238,7 +239,7 @@ export default function OwnerDashboard() {
                       />
                     </a>
                   ) : (
-                    <p className="text-xs text-slate-500 py-12 text-center">Shift still open / No closing photo yet</p>
+                    <p className="text-xs text-slate-500 py-12 text-center">Shift still open</p>
                   )}
                   <p className="text-[11px] text-slate-400 font-mono">
                     Closed at: {selectedShift.closed_at ? new Date(selectedShift.closed_at).toLocaleString() : "Pending"}
@@ -247,18 +248,22 @@ export default function OwnerDashboard() {
               </div>
 
               {/* Summary Financial Breakdown */}
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 grid grid-cols-3 gap-4 text-center text-xs">
-                <div>
-                  <span className="block text-slate-500 text-[10px] uppercase">Liters Sold</span>
-                  <span className="font-mono text-sm text-white font-bold">{selectedShift.liters_sold || 0} L</span>
-                </div>
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 grid grid-cols-4 gap-4 text-center text-xs">
                 <div>
                   <span className="block text-slate-500 text-[10px] uppercase">Expected Sales</span>
                   <span className="font-mono text-sm text-sky-400 font-bold">GHS {(selectedShift.total_sales || 0).toFixed(2)}</span>
                 </div>
                 <div>
+                  <span className="block text-slate-500 text-[10px] uppercase">Expenses</span>
+                  <span className="font-mono text-sm text-amber-400 font-bold">GHS {(selectedShift.expenses || 0).toFixed(2)}</span>
+                </div>
+                <div>
                   <span className="block text-slate-500 text-[10px] uppercase">Cash Declared</span>
                   <span className="font-mono text-sm text-emerald-400 font-bold">GHS {(selectedShift.cash_declared || 0).toFixed(2)}</span>
+                </div>
+                <div>
+                  <span className="block text-slate-500 text-[10px] uppercase">Variance</span>
+                  <span className="font-mono text-sm text-white font-bold">GHS {(selectedShift.variance || 0).toFixed(2)}</span>
                 </div>
               </div>
             </div>
