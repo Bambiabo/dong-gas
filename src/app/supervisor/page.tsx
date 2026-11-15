@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 export default function SupervisorTerminal() {
@@ -11,6 +11,7 @@ export default function SupervisorTerminal() {
   const [fuelPrice, setFuelPrice] = useState("10.40");
   const [openingMeter, setOpeningMeter] = useState("");
   const [openingImage, setOpeningImage] = useState<string | null>(null);
+  const [isLoadingPrevious, setIsLoadingPrevious] = useState(false);
 
   // Closing fields
   const [closingMeter, setClosingMeter] = useState("");
@@ -25,9 +26,32 @@ export default function SupervisorTerminal() {
   const [cameraActive, setCameraActive] = useState(false);
   const [useRearCamera, setUseRearCamera] = useState(true);
 
+  // Automatically fetch previous shift's closing meter on load to continue seamlessly
+  useEffect(() => {
+    async function fetchPreviousClosing() {
+      try {
+        setIsLoadingPrevious(true);
+        const { data, error } = await supabase
+          .from("shifts")
+          .select("closing_meter")
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (!error && data && data.length > 0 && data[0].closing_meter) {
+          setOpeningMeter(data[0].closing_meter.toString());
+        }
+      } catch (err) {
+        console.error("Could not fetch previous meter:", err);
+      } finally {
+        setIsLoadingPrevious(false);
+      }
+    }
+
+    fetchPreviousClosing();
+  }, []);
+
   const startCamera = async (rear: boolean) => {
     try {
-      // Clean up any existing video streams first
       if (videoRef.current && videoRef.current.srcObject) {
         const oldStream = videoRef.current.srcObject as MediaStream;
         oldStream.getTracks().forEach((track) => track.stop());
@@ -36,7 +60,6 @@ export default function SupervisorTerminal() {
 
       setCameraActive(true);
 
-      // Try with exact facingMode first, fallback to basic video constraints if unsupported
       let stream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -83,7 +106,6 @@ export default function SupervisorTerminal() {
         setClosingImage(dataUrl);
       }
 
-      // Stop stream tracks
       const stream = videoRef.current.srcObject as MediaStream;
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
@@ -258,7 +280,9 @@ export default function SupervisorTerminal() {
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Opening Meter (L)</label>
+              <label className="block text-xs text-slate-400 mb-1">
+                Opening Meter (L) {isLoadingPrevious && <span className="text-[10px] text-cyan-400">(Loading previous...)</span>}
+              </label>
               <input
                 type="number"
                 value={openingMeter}
@@ -358,7 +382,7 @@ export default function SupervisorTerminal() {
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Mobile Money / MoMo (GHS)</label>
+              <label className="path block text-xs text-slate-400 mb-1">Mobile Money / MoMo (GHS)</label>
               <input
                 type="number"
                 step="0.01"
