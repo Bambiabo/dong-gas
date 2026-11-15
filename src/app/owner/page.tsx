@@ -11,7 +11,6 @@ export default function OwnerDashboard() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    // Configurable Owner PIN gate (matches 7788)
     if (pin === "7788") {
       setIsAuthenticated(true);
       fetchShifts();
@@ -62,12 +61,20 @@ export default function OwnerDashboard() {
           <h1 className="text-2xl font-bold">Owner Financial Audit</h1>
           <p className="text-xs text-slate-400">Real-time breakdown of cash drops, MoMo collections, and shift metrics.</p>
         </div>
-        <button
-          onClick={() => setIsAuthenticated(false)}
-          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg font-medium text-slate-300"
-        >
-          Lock Gate
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={fetchShifts}
+            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-xs rounded-lg font-medium text-white shadow"
+          >
+            {loading ? "Refreshing..." : "Refresh Records 🔄"}
+          </button>
+          <button
+            onClick={() => setIsAuthenticated(false)}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg font-medium text-slate-300"
+          >
+            Lock Gate
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -77,7 +84,7 @@ export default function OwnerDashboard() {
           <table className="w-full text-left text-sm text-slate-300">
             <thead className="bg-slate-950 text-slate-400 uppercase text-xs border-b border-slate-800">
               <tr>
-                <th className="p-4">Date</th>
+                <th className="p-4">Date & Time</th>
                 <th className="p-4">Supervisor / Record</th>
                 <th className="p-4">Liters Sold</th>
                 <th className="p-4">Cash (GHS)</th>
@@ -89,7 +96,6 @@ export default function OwnerDashboard() {
             </thead>
             <tbody>
               {shifts.map((shift) => {
-                // Compute metrics safely from columns present in DB
                 const openM = shift.opening_meter || 0;
                 const closeM = shift.closing_meter || 0;
                 const price = shift.fuel_price || 10.40;
@@ -100,9 +106,17 @@ export default function OwnerDashboard() {
                 const totalCollected = cash + momo;
                 const variance = totalCollected - expectedRevenue;
 
+                // Format timestamp to include date and exact time (e.g., 11/15/2026, 10:45 AM)
+                const formattedDateTime = shift.created_at
+                  ? new Date(shift.created_at).toLocaleString([], {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    })
+                  : "N/A";
+
                 return (
                   <tr key={shift.id || shift.created_at} className="border-b border-slate-800 hover:bg-slate-850">
-                    <td className="p-4">{shift.created_at ? new Date(shift.created_at).toLocaleDateString() : "N/A"}</td>
+                    <td className="p-4 text-xs font-mono text-cyan-300">{formattedDateTime}</td>
                     <td className="p-4 font-medium text-white">{shift.supervisor_name || "Shift Operator"}</td>
                     <td className="p-4">{litersSold.toLocaleString()} L</td>
                     <td className="p-4 text-emerald-400">₵{cash.toFixed(2)}</td>
