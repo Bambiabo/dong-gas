@@ -8,10 +8,13 @@ export default function OwnerDashboard() {
   const [pin, setPin] = useState("");
   const [shifts, setShifts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // UI states & modals
   const [showChangePin, setShowChangePin] = useState(false);
   const [newPin, setNewPin] = useState("");
+  const [showResetBaseline, setShowResetBaseline] = useState(false);
+  const [newBaseline, setNewBaseline] = useState("");
   
-  // UI filters, grouping & modal states
   const [searchTerm, setSearchTerm] = useState("");
   const [timeframe, setTimeframe] = useState<"all" | "weekly" | "monthly">("weekly");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -45,6 +48,27 @@ export default function OwnerDashboard() {
     setShowChangePin(false);
   };
 
+  const handleResetBaseline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(newBaseline);
+    if (isNaN(val)) {
+      alert("Please enter a valid number for the baseline meter.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("station_baselines")
+      .upsert({ id: 1, pump_name: "main", baseline_meter: val, updated_at: new Date() });
+
+    if (error) {
+      alert(`Error updating baseline: ${error.message}`);
+    } else {
+      alert(`Successfully reset station opening baseline to ${val} L!`);
+      setNewBaseline("");
+      setShowResetBaseline(false);
+    }
+  };
+
   const fetchShifts = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -58,27 +82,11 @@ export default function OwnerDashboard() {
     setLoading(false);
   };
 
-  // Helper to get week number or month string for grouping
-  const getShiftPeriodKey = (dateString: string, type: "weekly" | "monthly") => {
-    const date = new Date(dateString);
-    if (type === "monthly") {
-      return date.toLocaleString('default', { month: 'long', year: 'numeric' });
-    } else {
-      // Weekly grouping (Year - W[WeekNumber])
-      const startOfYear = new Date(date.getFullYear(), 0, 1);
-      const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
-      const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
-      return `Week ${weekNumber}, ${date.getFullYear()}`;
-    }
-  };
-
-  // Filter shifts based on search term
   const filteredShifts = shifts.filter(s => {
     const name = (s.supervisor_name || s.supervisor || "").toLowerCase();
     return name.includes(searchTerm.toLowerCase());
   });
 
-  // Computed metrics for KPI overview cards based on filtered list
   const totalRevenue = filteredShifts.reduce((acc, s) => acc + (s.cash_collected || 0) + (s.momo_collected || 0), 0);
   const totalLitres = filteredShifts.reduce((acc, s) => acc + Math.max(0, (s.closing_meter || 0) - (s.opening_meter || 0)), 0);
   const totalCash = filteredShifts.reduce((acc, s) => acc + (s.cash_collected || 0), 0);
@@ -115,7 +123,7 @@ export default function OwnerDashboard() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-6 md:p-10 max-w-7xl mx-auto space-y-8">
-      {/* Top Header (Hidden on print) */}
+      {/* Header (Hidden on print) */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-6 print:hidden">
         <div>
           <div className="flex items-center gap-2">
@@ -123,7 +131,7 @@ export default function OwnerDashboard() {
             <span className="text-xs font-mono uppercase tracking-widest text-slate-400">Dong Gas Enterprise</span>
           </div>
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight mt-1">Owner Financial Audit</h1>
-          <p className="text-xs md:text-sm text-slate-400">Grouped operational oversight and shift reconciliations.</p>
+          <p className="text-xs md:text-sm text-slate-400">Operational oversight and shift reconciliations.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <button
@@ -133,7 +141,13 @@ export default function OwnerDashboard() {
             🖨️ Print Report
           </button>
           <button
-            onClick={() => setShowChangePin(!showChangePin)}
+            onClick={() => { setShowResetBaseline(!showResetBaseline); setShowChangePin(false); }}
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs rounded-xl font-medium text-cyan-400 transition"
+          >
+            {showResetBaseline ? "Cancel" : "Reset Baseline ⚡"}
+          </button>
+          <button
+            onClick={() => { setShowChangePin(!showChangePin); setShowResetBaseline(false); }}
             className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs rounded-xl font-medium text-slate-300 transition"
           >
             {showChangePin ? "Cancel" : "Change PIN ⚙️"}
@@ -167,6 +181,25 @@ export default function OwnerDashboard() {
           />
           <button type="submit" className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold rounded-xl transition">
             Save New PIN
+          </button>
+        </form>
+      )}
+
+      {/* Reset Meter Baseline Card */}
+      {showResetBaseline && (
+        <form onSubmit={handleResetBaseline} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-sm space-y-3 shadow-xl print:hidden">
+          <h2 className="text-sm font-bold text-cyan-400">⚡ Reset Pump Meter Baseline</h2>
+          <p className="text-[11px] text-slate-400">Set the exact opening meter value if shift data was cleared.</p>
+          <input
+            type="number"
+            value={newBaseline}
+            onChange={(e) => setNewBaseline(e.target.value)}
+            placeholder="e.g. 6554100"
+            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm focus:outline-none focus:border-cyan-500 font-mono text-cyan-300"
+            required
+          />
+          <button type="submit" className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-xs font-semibold rounded-xl transition">
+            Apply Baseline Override
           </button>
         </form>
       )}

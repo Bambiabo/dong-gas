@@ -48,31 +48,46 @@ export default function SupervisorTerminal() {
   };
 
   // ──────────────────────────────────────────────
-  // Fetch previous closing meter (used on mount)
+  // Fetch previous closing meter or owner baseline
   // ──────────────────────────────────────────────
   const fetchPreviousClosingMeter = async () => {
     try {
       setIsLoadingPrevious(true);
       showMessage("info", "Syncing previous shift meter…");
 
-      const { data, error } = await supabase
+      // 1. Check for latest closed shift (Standard continuous operation)
+      const { data: shiftData, error: shiftError } = await supabase
         .from("shifts")
         .select("closing_meter")
         .order("created_at", { ascending: false })
         .limit(1);
 
-      if (!error && data && data.length > 0 && data[0].closing_meter != null) {
-        const prior = data[0].closing_meter.toString();
+      if (!shiftError && shiftData && shiftData.length > 0 && shiftData[0].closing_meter != null) {
+        const prior = shiftData[0].closing_meter.toString();
         setOpeningMeter(prior);
         showMessage("success", `Auto-loaded previous closing meter: ${prior} L`);
+        return;
+      }
+
+      // 2. If no shifts exist, check if owner configured a manual reset baseline
+      const { data: baseData, error: baseError } = await supabase
+        .from("station_baselines")
+        .select("baseline_meter")
+        .eq("pump_name", "main")
+        .limit(1);
+
+      if (!baseError && baseData && baseData.length > 0) {
+        const baseline = baseData[0].baseline_meter.toString();
+        setOpeningMeter(baseline);
+        showMessage("info", `Baseline loaded from Owner config: ${baseline} L`);
       } else {
         setOpeningMeter("1000");
-        showMessage("info", "No previous shift found. Baseline set to 1000 L.");
+        showMessage("info", "No prior shift or baseline found. Set to 1000 L.");
       }
     } catch (err) {
       console.error(err);
       setOpeningMeter("1000");
-      showMessage("error", "Could not sync previous meter. Defaulted to 1000 L.");
+      showMessage("error", "Could not sync meter. Defaulted to 1000 L.");
     } finally {
       setIsLoadingPrevious(false);
     }
@@ -80,13 +95,11 @@ export default function SupervisorTerminal() {
 
   useEffect(() => {
     fetchPreviousClosingMeter();
-
-    // Cleanup camera on unmount
     return () => stopCamera();
   }, []);
 
   // ──────────────────────────────────────────────
-  // Camera
+  // Camera & OCR
   // ──────────────────────────────────────────────
   const startCamera = async (rear: boolean) => {
     try {
@@ -124,9 +137,6 @@ export default function SupervisorTerminal() {
     startCamera(next);
   };
 
-  // ──────────────────────────────────────────────
-  // High-accuracy OCR
-  // ──────────────────────────────────────────────
   const runAdvancedOCR = async (dataUrl: string) => {
     try {
       setIsScanning(true);
@@ -213,7 +223,6 @@ export default function SupervisorTerminal() {
     if (shiftStage === "CLOSING") {
       setClosingMeter(scannedPreviewValue);
     }
-    // Note: openingMeter is locked/non-editable by design, so OCR won't overwrite it automatically unless desired, but closingMeter accepts it.
     setScannedPreviewValue(null);
     showMessage("success", "Meter value applied.");
   };
@@ -284,10 +293,8 @@ export default function SupervisorTerminal() {
       const { error } = await supabase.from("shifts").insert([payload]);
       if (error) throw error;
 
-      // Carry the just-closed meter forward
       setOpeningMeter(closeM.toString());
 
-      // Reset for next shift
       setShiftStage("OPENING");
       setSupervisorName("");
       setClosingMeter("");
@@ -308,12 +315,8 @@ export default function SupervisorTerminal() {
     }
   };
 
-  // ──────────────────────────────────────────────
-  // Render
-  // ──────────────────────────────────────────────
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 max-w-lg mx-auto">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-xl font-bold tracking-tight">Dong Gas — Shift Supervisor</h1>
         <div className="flex items-center gap-2 mt-1">
@@ -329,10 +332,8 @@ export default function SupervisorTerminal() {
         </div>
       </div>
 
-      {/* ───────── OPENING STAGE ───────── */}
       {shiftStage === "OPENING" ? (
         <form onSubmit={handleOpenShiftSubmit} className="space-y-5">
-          {/* Supervisor */}
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5">
               Supervisor Name
@@ -347,7 +348,6 @@ export default function SupervisorTerminal() {
             />
           </div>
 
-          {/* Camera + OCR */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
             <label className="block text-xs font-medium text-slate-400 mb-3">
               Opening Meter · Photo Proof + OCR
@@ -425,7 +425,6 @@ export default function SupervisorTerminal() {
             )}
           </div>
 
-          {/* Price + Opening Meter (Locked / ReadOnly) */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">
@@ -475,9 +474,7 @@ export default function SupervisorTerminal() {
           </button>
         </form>
       ) : (
-        /* ───────── CLOSING STAGE ───────── */
         <form onSubmit={handleCloseShiftSubmit} className="space-y-5">
-          {/* Camera + OCR */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
             <label className="block text-xs font-medium text-slate-400 mb-3">
               Closing Meter · Photo Proof + OCR
@@ -571,7 +568,6 @@ export default function SupervisorTerminal() {
             )}
           </div>
 
-          {/* Closing Meter */}
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5">
               Closing Meter (L)
@@ -589,7 +585,6 @@ export default function SupervisorTerminal() {
             </p>
           </div>
 
-          {/* Cash & MoMo */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">
@@ -621,7 +616,6 @@ export default function SupervisorTerminal() {
             </div>
           </div>
 
-          {/* Expenses */}
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5">
               Shift Expenses (GHS)
@@ -657,7 +651,6 @@ export default function SupervisorTerminal() {
         </form>
       )}
 
-      {/* Status message */}
       {message && (
         <p
           className={`text-center text-xs mt-5 font-medium ${
