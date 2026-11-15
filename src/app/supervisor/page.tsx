@@ -34,7 +34,6 @@ export default function SupervisorTerminal() {
         setCameraActive(true);
       }
     } catch (err) {
-      // Fallback if exact environment constraint isn't available
       try {
         const fallbackStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: rear ? "environment" : "user" },
