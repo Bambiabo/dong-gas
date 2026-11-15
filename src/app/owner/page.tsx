@@ -48,6 +48,7 @@ export default function OwnerDashboard() {
       .order("created_at", { ascending: false });
 
     if (!error && data) {
+      console.log("Fetched shifts data from Supabase:", data); // Debug log to check keys
       setShifts(data);
     }
     setLoading(false);
@@ -157,10 +158,14 @@ export default function OwnerDashboard() {
                     })
                   : "N/A";
 
+                // Pull supervisor name across potential variations in table columns
+                const supName = shift.supervisor_name || shift.supervisor || shift.name || "Unknown Supervisor";
+                const proofUrl = shift.proof_image || shift.image || shift.photo;
+
                 return (
                   <tr key={shift.id || shift.created_at} className="border-b border-slate-800 hover:bg-slate-850">
                     <td className="p-4 text-xs font-mono text-cyan-300">{formattedDateTime}</td>
-                    <td className="p-4 font-medium text-white">{shift.supervisor_name || "Shift Operator"}</td>
+                    <td className="p-4 font-medium text-white">{supName}</td>
                     <td className="p-4">{litersSold.toLocaleString()} L</td>
                     <td className="p-4 text-emerald-400">₵{cash.toFixed(2)}</td>
                     <td className="p-4 text-cyan-400">₵{momo.toFixed(2)}</td>
@@ -169,14 +174,14 @@ export default function OwnerDashboard() {
                       ₵{variance.toFixed(2)}
                     </td>
                     <td className="p-4">
-                      {shift.proof_image ? (
+                      {proofUrl ? (
                         <a
-                          href={shift.proof_image}
+                          href={proofUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-cyan-400 underline hover:text-cyan-300"
+                          className="text-xs text-cyan-400 underline hover:text-cyan-300 font-semibold"
                         >
-                          View Photo
+                          View Photo 📷
                         </a>
                       ) : (
                         <span className="text-xs text-slate-500">No Photo</span>
