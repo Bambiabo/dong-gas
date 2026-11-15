@@ -5,33 +5,56 @@ import { supabase } from "@/lib/supabase";
 
 export default function SupervisorTerminal() {
   const [shiftStage, setShiftStage] = useState<"OPENING" | "CLOSING">("OPENING");
-  
+
+  // Opening
   const [supervisorName, setSupervisorName] = useState("");
   const [fuelPrice, setFuelPrice] = useState("10.40");
   const [openingMeter, setOpeningMeter] = useState("");
   const [openingImage, setOpeningImage] = useState<string | null>(null);
   const [isLoadingPrevious, setIsLoadingPrevious] = useState(false);
 
+  // Closing
   const [closingMeter, setClosingMeter] = useState("");
   const [cashCollected, setCashCollected] = useState("");
   const [momoCollected, setMomoCollected] = useState("");
   const [expenses, setExpenses] = useState("");
   const [closingImage, setClosingImage] = useState<string | null>(null);
 
+  // UI / OCR state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scannedPreviewValue, setScannedPreviewValue] = useState<string | null>(null);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<{ type: "info" | "success" | "error"; text: string } | null>(null);
 
+  // Camera
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [useRearCamera, setUseRearCamera] = useState(true);
 
-  // Function to pull the continuation meter from Supabase
+  // ──────────────────────────────────────────────
+  // Helpers
+  // ──────────────────────────────────────────────
+  const showMessage = (type: "info" | "success" | "error", text: string) => {
+    setMessage({ type, text });
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((t) => t.stop());
+      videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+  };
+
+  // ──────────────────────────────────────────────
+  // Fetch previous closing meter (used on mount)
+  // ──────────────────────────────────────────────
   const fetchPreviousClosingMeter = async () => {
     try {
       setIsLoadingPrevious(true);
-      setMessage("Syncing prior shift meter...");
+      showMessage("info", "Syncing previous shift meter…");
+
       const { data, error } = await supabase
         .from("shifts")
         .select("closing_meter")
@@ -39,17 +62,17 @@ export default function SupervisorTerminal() {
         .limit(1);
 
       if (!error && data && data.length > 0 && data[0].closing_meter != null) {
-        const priorClose = data[0].closing_meter.toString();
-        setOpeningMeter(priorClose);
-        setMessage(`✓ Auto-loaded prior closing meter (${priorClose} L).`);
+        const prior = data[0].closing_meter.toString();
+        setOpeningMeter(prior);
+        showMessage("success", `Auto-loaded previous closing meter: ${prior} L`);
       } else {
         setOpeningMeter("1000");
-        setMessage("ℹ️ No prior shifts found. Set baseline to 1000 L.");
+        showMessage("info", "No previous shift found. Baseline set to 1000 L.");
       }
     } catch (err) {
-      console.error("Could not fetch previous meter:", err);
+      console.error(err);
       setOpeningMeter("1000");
-      setMessage("⚠️ Failed to sync prior meter. Defaulted to 1000 L.");
+      showMessage("error", "Could not sync previous meter. Defaulted to 1000 L.");
     } finally {
       setIsLoadingPrevious(false);
     }
@@ -57,26 +80,27 @@ export default function SupervisorTerminal() {
 
   useEffect(() => {
     fetchPreviousClosingMeter();
+
+    // Cleanup camera on unmount
+    return () => stopCamera();
   }, []);
 
+  // ──────────────────────────────────────────────
+  // Camera
+  // ──────────────────────────────────────────────
   const startCamera = async (rear: boolean) => {
     try {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const oldStream = videoRef.current.srcObject as MediaStream;
-        oldStream.getTracks().forEach((track) => track.stop());
-        videoRef.current.srcObject = null;
-      }
-
+      stopCamera();
       setCameraActive(true);
       setScannedPreviewValue(null);
 
-      let stream;
+      let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: rear ? { exact: "environment" } : "user" },
           audio: false,
         });
-      } catch (e) {
+      } catch {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: rear ? "environment" : "user" },
           audio: false,
@@ -88,24 +112,27 @@ export default function SupervisorTerminal() {
         await videoRef.current.play().catch(() => {});
       }
     } catch (err) {
-      console.error("Camera error:", err);
-      alert("Could not open camera.");
+      console.error(err);
+      alert("Could not open camera. Please allow camera permission.");
       setCameraActive(false);
     }
   };
 
   const toggleCameraFacing = () => {
-    const nextState = !useRearCamera;
-    setUseRearCamera(nextState);
-    startCamera(nextState);
+    const next = !useRearCamera;
+    setUseRearCamera(next);
+    startCamera(next);
   };
 
-  // High-accuracy OCR pipeline with Canvas preprocessing & numeric whitelisting
+  // ──────────────────────────────────────────────
+  // High-accuracy OCR
+  // ──────────────────────────────────────────────
   const runAdvancedOCR = async (dataUrl: string) => {
     try {
       setIsScanning(true);
-      setMessage("Processing image via computer vision OCR...");
+      showMessage("info", "Running high-accuracy OCR…");
 
+      // Pre-process (2× upscale for better recognition)
       const processedDataUrl = await new Promise<string>((resolve) => {
         const img = new Image();
         img.onload = () => {
@@ -124,6 +151,7 @@ export default function SupervisorTerminal() {
         img.src = dataUrl;
       });
 
+      // Load Tesseract if needed
       if (!(window as any).Tesseract) {
         await new Promise((resolve, reject) => {
           const script = document.createElement("script");
@@ -136,25 +164,25 @@ export default function SupervisorTerminal() {
 
       const Tesseract = (window as any).Tesseract;
       const worker = await Tesseract.createWorker("eng");
-      
+
       await worker.setParameters({
-        tessedit_char_whitelist: '0123456789',
+        tessedit_char_whitelist: "0123456789",
       });
 
       const result = await worker.recognize(processedDataUrl);
       await worker.terminate();
 
-      const extractedDigits = (result.data.text || "").replace(/[^0-9]/g, "");
+      const digits = (result.data.text || "").replace(/[^0-9]/g, "");
 
-      if (extractedDigits.length >= 4) {
-        setScannedPreviewValue(extractedDigits);
-        setMessage("✓ High-accuracy OCR scan successful.");
+      if (digits.length >= 4) {
+        setScannedPreviewValue(digits);
+        showMessage("success", "OCR successful — please verify the reading.");
       } else {
-        setMessage("⚠️ Could not clearly isolate digits. Please verify or enter manually.");
+        showMessage("error", "Could not reliably extract digits. Enter manually.");
       }
     } catch (err) {
-      console.error("OCR Error:", err);
-      setMessage("OCR processing failed. Please enter meter value manually.");
+      console.error(err);
+      showMessage("error", "OCR failed. Please enter the meter value manually.");
     } finally {
       setIsScanning(false);
     }
@@ -162,27 +190,24 @@ export default function SupervisorTerminal() {
 
   const capturePhoto = async () => {
     if (!videoRef.current) return;
+
     const canvas = document.createElement("canvas");
     canvas.width = videoRef.current.videoWidth || 1280;
     canvas.height = videoRef.current.videoHeight || 720;
     const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    if (!ctx) return;
 
-      if (shiftStage === "OPENING") {
-        setOpeningImage(dataUrl);
-      } else {
-        setClosingImage(dataUrl);
-      }
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
 
-      const stream = videoRef.current.srcObject as MediaStream;
-      if (stream) stream.getTracks().forEach((track) => track.stop());
-      if (videoRef.current) videoRef.current.srcObject = null;
-      setCameraActive(false);
-
-      await runAdvancedOCR(dataUrl);
+    if (shiftStage === "OPENING") {
+      setOpeningImage(dataUrl);
+    } else {
+      setClosingImage(dataUrl);
     }
+
+    stopCamera();
+    await runAdvancedOCR(dataUrl);
   };
 
   const confirmScannedValue = () => {
@@ -193,11 +218,15 @@ export default function SupervisorTerminal() {
       setClosingMeter(scannedPreviewValue);
     }
     setScannedPreviewValue(null);
-    setMessage("✓ Verified meter value applied.");
+    showMessage("success", "Meter value applied.");
   };
 
+  // ──────────────────────────────────────────────
+  // Form handlers
+  // ──────────────────────────────────────────────
   const handleOpenShiftSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!supervisorName.trim()) {
       alert("Please enter the Supervisor Name.");
       return;
@@ -206,39 +235,44 @@ export default function SupervisorTerminal() {
       alert("Opening meter photo proof is required.");
       return;
     }
-    if (!openingMeter) {
-      alert("Opening meter reading is required.");
+    if (!openingMeter || isNaN(parseFloat(openingMeter))) {
+      alert("A valid Opening Meter reading is required.");
       return;
     }
 
     setShiftStage("CLOSING");
-    setMessage("Opening locked successfully. Proceed to closing stage.");
+    showMessage("success", "Opening locked. Proceed to closing stage.");
   };
 
   const handleCloseShiftSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!closingImage) {
       alert("Closing meter photo proof is required.");
       return;
     }
 
+    const openM = parseFloat(openingMeter);
+    const closeM = parseFloat(closingMeter);
+    const price = parseFloat(fuelPrice);
+    const cash = parseFloat(cashCollected || "0");
+    const momo = parseFloat(momoCollected || "0");
+    const exp = parseFloat(expenses || "0");
+
+    if (isNaN(openM) || isNaN(closeM) || isNaN(price)) {
+      alert("Please enter valid numbers for meters and fuel price.");
+      return;
+    }
+
+    if (closeM <= openM) {
+      alert(`Closing meter (${closeM}) must be greater than opening meter (${openM}).`);
+      return;
+    }
+
     setIsSubmitting(true);
-    setMessage("");
+    setMessage(null);
 
     try {
-      const openM = parseFloat(openingMeter);
-      const closeM = parseFloat(closingMeter);
-      const price = parseFloat(fuelPrice);
-      const cash = parseFloat(cashCollected || "0");
-      const momo = parseFloat(momoCollected || "0");
-      const exp = parseFloat(expenses || "0");
-
-      if (closeM <= openM) {
-        alert(`Validation Error: Closing meter (${closeM}) must be strictly greater than opening meter (${openM}).`);
-        setIsSubmitting(false);
-        return;
-      }
-
       const payload = {
         supervisor_name: supervisorName.trim(),
         fuel_price: price,
@@ -247,14 +281,16 @@ export default function SupervisorTerminal() {
         cash_collected: cash,
         momo_collected: momo,
         expenses: exp,
-        proof_image: closingImage,
+        proof_image: closingImage, // you can also store openingImage if your schema supports it
       };
 
       const { error } = await supabase.from("shifts").insert([payload]);
-
       if (error) throw error;
 
-      setMessage("Shift successfully audited, closed, and saved!");
+      // ── Critical: carry the just-closed meter forward ──
+      setOpeningMeter(closeM.toString());
+
+      // Reset for next shift
       setShiftStage("OPENING");
       setSupervisorName("");
       setClosingMeter("");
@@ -263,58 +299,102 @@ export default function SupervisorTerminal() {
       setExpenses("");
       setOpeningImage(null);
       setClosingImage(null);
+      setScannedPreviewValue(null);
 
-      // Re-fetch continuation meter for the next shift
-      await fetchPreviousClosingMeter();
+      showMessage("success", `Shift closed successfully. Next opening meter set to ${closeM} L`);
     } catch (err: any) {
-      console.error("Supabase insert error:", err);
-      alert(`Error: ${err.message}`);
+      console.error(err);
+      alert(`Error saving shift: ${err.message}`);
+      showMessage("error", "Failed to save shift. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // ──────────────────────────────────────────────
+  // Live calculations (closing stage)
+  // ──────────────────────────────────────────────
+  const openM = parseFloat(openingMeter) || 0;
+  const closeM = parseFloat(closingMeter) || 0;
+  const price = parseFloat(fuelPrice) || 0;
+  const cash = parseFloat(cashCollected) || 0;
+  const momo = parseFloat(momoCollected) || 0;
+  const exp = parseFloat(expenses) || 0;
+
+  const litresSold = closeM > openM ? closeM - openM : 0;
+  const expectedRevenue = litresSold * price;
+  const totalCollected = cash + momo;
+  const variance = totalCollected - expectedRevenue - exp; // adjust formula if your accounting differs
+
+  // ──────────────────────────────────────────────
+  // Render
+  // ──────────────────────────────────────────────
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 max-w-lg mx-auto">
-      <h1 className="text-xl font-bold mb-1">Dong Gas — Shift Supervisor</h1>
-      <p className="text-xs text-slate-400 mb-4">
-        {shiftStage === "OPENING" ? "Stage 1: Opening Meter & Start Shift" : "Stage 2: Closing Meter & Reconciliation"}
-      </p>
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-xl font-bold tracking-tight">Dong Gas — Shift Supervisor</h1>
+        <div className="flex items-center gap-2 mt-1">
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              shiftStage === "OPENING"
+                ? "bg-blue-500/20 text-blue-300"
+                : "bg-emerald-500/20 text-emerald-300"
+            }`}
+          >
+            {shiftStage === "OPENING" ? "Stage 1 · Opening" : "Stage 2 · Closing"}
+          </span>
+        </div>
+      </div>
 
+      {/* ───────── OPENING STAGE ───────── */}
       {shiftStage === "OPENING" ? (
-        <form onSubmit={handleOpenShiftSubmit} className="space-y-4">
+        <form onSubmit={handleOpenShiftSubmit} className="space-y-5">
+          {/* Supervisor */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Supervisor Name</label>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              Supervisor Name
+            </label>
             <input
               type="text"
               value={supervisorName}
               onChange={(e) => setSupervisorName(e.target.value)}
               required
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm"
-              placeholder="Enter your name"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+              placeholder="Enter your full name"
             />
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
-            <label className="block text-xs text-slate-400 mb-2">Opening Meter Camera Proof & Computer Vision OCR</label>
+          {/* Camera + OCR */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+            <label className="block text-xs font-medium text-slate-400 mb-3">
+              Opening Meter · Photo Proof + OCR
+            </label>
+
             {!cameraActive && !openingImage && (
               <button
                 type="button"
                 onClick={() => startCamera(useRearCamera)}
-                className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-semibold rounded-lg text-sm shadow"
+                className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-semibold rounded-xl text-sm transition"
               >
-                Turn On Secure Camera Proof
+                Turn On Camera
               </button>
             )}
 
             {cameraActive && (
-              <div>
-                <div className="relative mb-3">
-                  <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-lg bg-black" />
+              <div className="space-y-3">
+                <div className="relative">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full rounded-xl bg-black aspect-video object-cover"
+                  />
                   <button
                     type="button"
                     onClick={toggleCameraFacing}
-                    className="absolute top-2 right-2 bg-slate-950/90 text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 shadow-md"
+                    className="absolute top-2.5 right-2.5 bg-black/70 text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-white/20"
                   >
                     Switch 🔄
                   </button>
@@ -323,141 +403,343 @@ export default function SupervisorTerminal() {
                   type="button"
                   onClick={capturePhoto}
                   disabled={isScanning}
-                  className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 font-semibold rounded-lg text-sm"
+                  className="w-full py-3.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 font-semibold rounded-xl text-sm transition"
                 >
-                  {isScanning ? "Processing Computer Vision..." : "Snap & Scan Meter 📸"}
+                  {isScanning ? "Processing OCR…" : "Snap & Scan Meter 📸"}
                 </button>
               </div>
             )}
 
             {openingImage && (
-              <div className="mt-2 text-center">
-                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Opening photo captured.</p>
-                <img src={openingImage} alt="Opening Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
+              <div className="mt-3 text-center space-y-3">
+                <p className="text-xs text-emerald-400 font-medium">✓ Opening photo captured</p>
+                <img
+                  src={openingImage}
+                  alt="Opening proof"
+                  className="w-32 h-32 object-cover mx-auto rounded-xl border border-slate-700"
+                />
+
                 {scannedPreviewValue && (
-                  <div className="bg-slate-800 border border-cyan-500/50 p-3 rounded-lg mb-2">
-                    <p className="text-xs text-slate-300 mb-1">Detected Meter Value:</p>
-                    <p className="text-lg font-mono font-bold text-cyan-400 mb-2">{scannedPreviewValue}</p>
+                  <div className="bg-slate-800/80 border border-cyan-500/40 rounded-xl p-3.5">
+                    <p className="text-xs text-slate-400 mb-1">Detected reading</p>
+                    <p className="text-xl font-mono font-bold text-cyan-400 mb-3">
+                      {scannedPreviewValue}
+                    </p>
                     <div className="flex gap-2">
-                      <button type="button" onClick={confirmScannedValue} className="flex-1 bg-emerald-600 py-1.5 rounded text-xs font-semibold">Accept ✓</button>
-                      <button type="button" onClick={() => setScannedPreviewValue(null)} className="flex-1 bg-slate-700 py-1.5 rounded text-xs font-semibold">Dismiss</button>
+                      <button
+                        type="button"
+                        onClick={confirmScannedValue}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-xs font-semibold"
+                      >
+                        Accept ✓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScannedPreviewValue(null)}
+                        className="flex-1 bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-xs font-semibold"
+                      >
+                        Dismiss
+                      </button>
                     </div>
                   </div>
                 )}
-                <button type="button" onClick={() => { setOpeningImage(null); setScannedPreviewValue(null); startCamera(useRearCamera); }} className="text-xs text-cyan-400 underline">
-                  Retake Photo
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpeningImage(null);
+                    setScannedPreviewValue(null);
+                    startCamera(useRearCamera);
+                  }}
+                  className="text-xs text-cyan-400 hover:underline"
+                >
+                  Retake photo
                 </button>
               </div>
             )}
           </div>
 
+          {/* Price + Opening Meter */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Fuel Price (GHS/L)</label>
-              <input type="number" step="0.01" value={fuelPrice} onChange={(e) => setFuelPrice(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" />
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Fuel Price (GHS/L)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={fuelPrice}
+                onChange={(e) => setFuelPrice(e.target.value)}
+                required
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+              />
             </div>
+
             <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="text-xs text-slate-400">Opening Meter (L)</label>
-                <button 
-                  type="button" 
-                  onClick={fetchPreviousClosingMeter} 
-                  className="text-[10px] text-cyan-400 hover:underline"
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="text-xs font-medium text-slate-400">
+                  Opening Meter (L)
+                </label>
+                <button
+                  type="button"
+                  onClick={fetchPreviousClosingMeter}
+                  disabled={isLoadingPrevious}
+                  className="text-[10px] text-cyan-400 hover:underline disabled:opacity-50"
                 >
-                  {isLoadingPrevious ? "Syncing..." : "🔄 Sync Prior Meter"}
+                  {isLoadingPrevious ? "Syncing…" : "↻ Resync"}
                 </button>
               </div>
-              <input 
-                type="number" 
-                value={openingMeter} 
-                onChange={(e) => setOpeningMeter(e.target.value)} 
-                required 
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" 
-                placeholder="Auto-synced from prior shift" 
+              <input
+                type="number"
+                value={openingMeter}
+                onChange={(e) => setOpeningMeter(e.target.value)}
+                required
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                placeholder="Auto-synced"
               />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Auto-carried from previous closing
+              </p>
             </div>
           </div>
 
-          <button type="submit" className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 font-semibold rounded-xl text-sm shadow-lg">
-            Start Shift & Lock Opening
+          <button
+            type="submit"
+            className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 font-semibold rounded-xl text-sm shadow-lg transition"
+          >
+            Lock Opening & Start Shift
           </button>
         </form>
       ) : (
-        <form onSubmit={handleCloseShiftSubmit} className="space-y-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
-            <label className="block text-xs text-slate-400 mb-2">Closing Meter Camera Proof & Computer Vision OCR</label>
+        /* ───────── CLOSING STAGE ───────── */
+        <form onSubmit={handleCloseShiftSubmit} className="space-y-5">
+          {/* Camera + OCR */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+            <label className="block text-xs font-medium text-slate-400 mb-3">
+              Closing Meter · Photo Proof + OCR
+            </label>
+
             {!cameraActive && !closingImage && (
-              <button type="button" onClick={() => startCamera(useRearCamera)} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-semibold rounded-lg text-sm shadow">
-                Turn On Secure Camera Proof
+              <button
+                type="button"
+                onClick={() => startCamera(useRearCamera)}
+                className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-semibold rounded-xl text-sm transition"
+              >
+                Turn On Camera
               </button>
             )}
 
             {cameraActive && (
-              <div>
-                <div className="relative mb-3">
-                  <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-lg bg-black" />
-                  <button type="button" onClick={toggleCameraFacing} className="absolute top-2 right-2 bg-slate-950/90 text-white px-3 py-1.5 rounded-lg text-xs">Switch 🔄</button>
+              <div className="space-y-3">
+                <div className="relative">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full rounded-xl bg-black aspect-video object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={toggleCameraFacing}
+                    className="absolute top-2.5 right-2.5 bg-black/70 text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-white/20"
+                  >
+                    Switch 🔄
+                  </button>
                 </div>
-                <button type="button" onClick={capturePhoto} disabled={isScanning} className="w-full py-3 bg-cyan-600 font-semibold rounded-lg text-sm">
-                  {isScanning ? "Processing Computer Vision..." : "Snap & Scan Meter 📸"}
+                <button
+                  type="button"
+                  onClick={capturePhoto}
+                  disabled={isScanning}
+                  className="w-full py-3.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 font-semibold rounded-xl text-sm transition"
+                >
+                  {isScanning ? "Processing OCR…" : "Snap & Scan Meter 📸"}
                 </button>
               </div>
             )}
 
             {closingImage && (
-              <div className="mt-2 text-center">
-                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Closing photo captured.</p>
-                <img src={closingImage} alt="Closing Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
+              <div className="mt-3 text-center space-y-3">
+                <p className="text-xs text-emerald-400 font-medium">✓ Closing photo captured</p>
+                <img
+                  src={closingImage}
+                  alt="Closing proof"
+                  className="w-32 h-32 object-cover mx-auto rounded-xl border border-slate-700"
+                />
+
                 {scannedPreviewValue && (
-                  <div className="bg-slate-800 border border-cyan-500/50 p-3 rounded-lg mb-2">
-                    <p className="text-xs text-slate-300 mb-1">Detected Meter Value:</p>
-                    <p className="text-lg font-mono font-bold text-cyan-400 mb-2">{scannedPreviewValue}</p>
+                  <div className="bg-slate-800/80 border border-cyan-500/40 rounded-xl p-3.5">
+                    <p className="text-xs text-slate-400 mb-1">Detected reading</p>
+                    <p className="text-xl font-mono font-bold text-cyan-400 mb-3">
+                      {scannedPreviewValue}
+                    </p>
                     <div className="flex gap-2">
-                      <button type="button" onClick={confirmScannedValue} className="flex-1 bg-emerald-600 py-1.5 rounded text-xs font-semibold">Accept ✓</button>
-                      <button type="button" onClick={() => setScannedPreviewValue(null)} className="flex-1 bg-slate-700 py-1.5 rounded text-xs font-semibold">Dismiss</button>
+                      <button
+                        type="button"
+                        onClick={confirmScannedValue}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-xs font-semibold"
+                      >
+                        Accept ✓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScannedPreviewValue(null)}
+                        className="flex-1 bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-xs font-semibold"
+                      >
+                        Dismiss
+                      </button>
                     </div>
                   </div>
                 )}
-                <button type="button" onClick={() => { setClosingImage(null); setScannedPreviewValue(null); startCamera(useRearCamera); }} className="text-xs text-cyan-400 underline">
-                  Retake Photo
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClosingImage(null);
+                    setScannedPreviewValue(null);
+                    startCamera(useRearCamera);
+                  }}
+                  className="text-xs text-cyan-400 hover:underline"
+                >
+                  Retake photo
                 </button>
               </div>
             )}
           </div>
 
+          {/* Closing Meter */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Closing Meter (L)</label>
-            <input type="number" value={closingMeter} onChange={(e) => setClosingMeter(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" placeholder="Must be greater than opening meter" />
-            <p className="text-[10px] text-slate-400 mt-1">Opening baseline reference: {openingMeter} L</p>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              Closing Meter (L)
+            </label>
+            <input
+              type="number"
+              value={closingMeter}
+              onChange={(e) => setClosingMeter(e.target.value)}
+              required
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+              placeholder="Must be greater than opening"
+            />
+            <p className="text-[10px] text-slate-500 mt-1">
+              Opening baseline: <span className="text-slate-300">{openingMeter || "—"} L</span>
+            </p>
           </div>
 
+          {/* Cash & MoMo */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Cash Collected (GHS)</label>
-              <input type="number" step="0.01" value={cashCollected} onChange={(e) => setCashCollected(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" placeholder="0.00" />
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Cash Collected (GHS)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={cashCollected}
+                onChange={(e) => setCashCollected(e.target.value)}
+                required
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                placeholder="0.00"
+              />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">MoMo (GHS)</label>
-              <input type="number" step="0.01" value={momoCollected} onChange={(e) => setMomoCollected(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" placeholder="0.00" />
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                MoMo Collected (GHS)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={momoCollected}
+                onChange={(e) => setMomoCollected(e.target.value)}
+                required
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                placeholder="0.00"
+              />
             </div>
           </div>
 
+          {/* Expenses */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Shift Expenses (GHS)</label>
-            <input type="number" step="0.01" value={expenses} onChange={(e) => setExpenses(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" placeholder="0.00" />
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              Shift Expenses (GHS)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={expenses}
+              onChange={(e) => setExpenses(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+              placeholder="0.00"
+            />
           </div>
 
-          <button type="submit" disabled={isSubmitting} className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 font-semibold rounded-xl text-sm shadow-lg">
-            {isSubmitting ? "Submitting Shift..." : "Submit Shift & Close"}
+          {/* Live Summary Card */}
+          {closeM > openM && (
+            <div className="bg-slate-900/60 border border-slate-700 rounded-2xl p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Litres sold</span>
+                <span className="font-mono font-medium">{litresSold.toFixed(2)} L</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Expected revenue</span>
+                <span className="font-mono font-medium">GHS {expectedRevenue.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Total collected</span>
+                <span className="font-mono font-medium">GHS {totalCollected.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-700 pt-2 mt-1">
+                <span className="text-slate-400">Variance</span>
+                <span
+                  className={`font-mono font-semibold ${
+                    Math.abs(variance) < 1
+                      ? "text-emerald-400"
+                      : variance > 0
+                      ? "text-cyan-400"
+                      : "text-amber-400"
+                  }`}
+                >
+                  {variance >= 0 ? "+" : ""}
+                  {variance.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60 font-semibold rounded-xl text-sm shadow-lg transition"
+          >
+            {isSubmitting ? "Saving Shift…" : "Submit & Close Shift"}
           </button>
-          
-          <button type="button" onClick={() => setShiftStage("OPENING")} className="w-full py-2 text-xs text-slate-400 hover:text-white">
-            ← Back to Opening Details
+
+          <button
+            type="button"
+            onClick={() => {
+              stopCamera();
+              setShiftStage("OPENING");
+            }}
+            className="w-full py-2.5 text-xs text-slate-400 hover:text-white transition"
+          >
+            ← Back to Opening
           </button>
         </form>
       )}
 
-      {message && <p className="text-center text-xs mt-3 text-cyan-300 font-medium">{message}</p>}
+      {/* Status message */}
+      {message && (
+        <p
+          className={`text-center text-xs mt-5 font-medium ${
+            message.type === "success"
+              ? "text-emerald-400"
+              : message.type === "error"
+              ? "text-amber-400"
+              : "text-cyan-300"
+          }`}
+        >
+          {message.text}
+        </p>
+      )}
     </main>
   );
 }
