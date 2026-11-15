@@ -16,48 +16,43 @@ export default function SupervisorTerminal() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
-  const [useRearCamera, setUseRearCamera] = useState(true); // Default to rear camera for meter proof
+  const [useRearCamera, setUseRearCamera] = useState(true);
 
-  // Start or switch live camera stream
   const startCamera = async (rear: boolean) => {
     try {
-      // Stop any existing stream first
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach((track) => track.stop());
       }
 
-      const constraints = {
-        video: {
-          facingMode: rear ? { exact: "environment" } : "user",
-        },
-      };
-
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err) {
-        // Fallback if exact environment constraint isn't supported on some mobile browsers
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: rear ? "environment" : "user" },
-        });
-      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: rear ? { exact: "environment" } : "user" },
+      });
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setCameraActive(true);
       }
     } catch (err) {
-      alert("Unable to access camera. Please check permissions.");
+      // Fallback if exact environment constraint isn't available
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: rear ? "environment" : "user" },
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = fallbackStream;
+          setCameraActive(true);
+        }
+      } catch (fallbackErr) {
+        alert("Unable to access camera. Please check permissions.");
+      }
     }
   };
 
   const toggleCameraFacing = () => {
     const nextState = !useRearCamera;
     setUseRearCamera(nextState);
-    if (cameraActive) {
-      startCamera(nextState);
-    }
+    startCamera(nextState);
   };
 
   const capturePhoto = () => {
@@ -100,7 +95,6 @@ export default function SupervisorTerminal() {
       const totalCollected = cash + momo;
       const variance = totalCollected - expectedRevenue;
 
-      // Save shift record to Supabase
       const { error } = await supabase.from("shifts").insert([
         {
           supervisor_name: supervisorName,
@@ -137,10 +131,10 @@ export default function SupervisorTerminal() {
       <h1 className="text-xl font-bold mb-1">Dong Gas — Shift Supervisor</h1>
       <p className="text-xs text-slate-400 mb-4">Secure Meter Reconciliation & Payment Logging</p>
 
-      {/* Live Camera View with Switcher */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
         {!cameraActive ? (
           <button
+            type="button"
             onClick={() => startCamera(useRearCamera)}
             className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-medium rounded-lg text-sm"
           >
