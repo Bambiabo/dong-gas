@@ -17,6 +17,7 @@ export default function SupervisorTerminal() {
   const [closingMeter, setClosingMeter] = useState("");
   const [cashCollected, setCashCollected] = useState("");
   const [momoCollected, setMomoCollected] = useState("");
+  const [expenses, setExpenses] = useState("");
   const [closingImage, setClosingImage] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -200,6 +201,7 @@ export default function SupervisorTerminal() {
       const price = parseFloat(fuelPrice);
       const cash = parseFloat(cashCollected || "0");
       const momo = parseFloat(momoCollected || "0");
+      const exp = parseFloat(expenses || "0");
 
       if (closeM <= openM) {
         alert("Closing meter must be greater than opening meter (Meter Continuity check).");
@@ -209,7 +211,8 @@ export default function SupervisorTerminal() {
 
       const litersSold = closeM - openM;
       const expectedRevenue = litersSold * price;
-      const totalCollected = cash + momo;
+      // Total accounting collected includes cash, MoMo, and operational expenses paid out from revenue
+      const totalCollected = cash + momo + exp;
       const variance = totalCollected - expectedRevenue;
 
       const { error } = await supabase.from("shifts").insert([
@@ -222,6 +225,7 @@ export default function SupervisorTerminal() {
           expected_revenue: expectedRevenue,
           cash_collected: cash,
           momo_collected: momo,
+          expenses: exp,
           total_collected: totalCollected,
           variance: variance,
           proof_image: closingImage,
@@ -237,6 +241,7 @@ export default function SupervisorTerminal() {
       setClosingMeter("");
       setCashCollected("");
       setMomoCollected("");
+      setExpenses("");
       setOpeningImage(null);
       setClosingImage(null);
     } catch (err: any) {
@@ -498,6 +503,18 @@ export default function SupervisorTerminal() {
                 placeholder="0.00"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">Shift Expenses (GHS)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={expenses}
+              onChange={(e) => setExpenses(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm"
+              placeholder="0.00"
+            />
           </div>
 
           <button
