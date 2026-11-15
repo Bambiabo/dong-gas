@@ -132,7 +132,6 @@ export default function SupervisorTerminal() {
       setIsScanning(true);
       showMessage("info", "Running high-accuracy OCR…");
 
-      // Pre-process (2× upscale for better recognition)
       const processedDataUrl = await new Promise<string>((resolve) => {
         const img = new Image();
         img.onload = () => {
@@ -151,7 +150,6 @@ export default function SupervisorTerminal() {
         img.src = dataUrl;
       });
 
-      // Load Tesseract if needed
       if (!(window as any).Tesseract) {
         await new Promise((resolve, reject) => {
           const script = document.createElement("script");
@@ -281,13 +279,13 @@ export default function SupervisorTerminal() {
         cash_collected: cash,
         momo_collected: momo,
         expenses: exp,
-        proof_image: closingImage, // you can also store openingImage if your schema supports it
+        proof_image: closingImage,
       };
 
       const { error } = await supabase.from("shifts").insert([payload]);
       if (error) throw error;
 
-      // ── Critical: carry the just-closed meter forward ──
+      // Carry the just-closed meter forward
       setOpeningMeter(closeM.toString());
 
       // Reset for next shift
@@ -310,21 +308,6 @@ export default function SupervisorTerminal() {
       setIsSubmitting(false);
     }
   };
-
-  // ──────────────────────────────────────────────
-  // Live calculations (closing stage)
-  // ──────────────────────────────────────────────
-  const openM = parseFloat(openingMeter) || 0;
-  const closeM = parseFloat(closingMeter) || 0;
-  const price = parseFloat(fuelPrice) || 0;
-  const cash = parseFloat(cashCollected) || 0;
-  const momo = parseFloat(momoCollected) || 0;
-  const exp = parseFloat(expenses) || 0;
-
-  const litresSold = closeM > openM ? closeM - openM : 0;
-  const expectedRevenue = litresSold * price;
-  const totalCollected = cash + momo;
-  const variance = totalCollected - expectedRevenue - exp; // adjust formula if your accounting differs
 
   // ──────────────────────────────────────────────
   // Render
@@ -671,39 +654,6 @@ export default function SupervisorTerminal() {
               placeholder="0.00"
             />
           </div>
-
-          {/* Live Summary Card */}
-          {closeM > openM && (
-            <div className="bg-slate-900/60 border border-slate-700 rounded-2xl p-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Litres sold</span>
-                <span className="font-mono font-medium">{litresSold.toFixed(2)} L</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Expected revenue</span>
-                <span className="font-mono font-medium">GHS {expectedRevenue.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Total collected</span>
-                <span className="font-mono font-medium">GHS {totalCollected.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between border-t border-slate-700 pt-2 mt-1">
-                <span className="text-slate-400">Variance</span>
-                <span
-                  className={`font-mono font-semibold ${
-                    Math.abs(variance) < 1
-                      ? "text-emerald-400"
-                      : variance > 0
-                      ? "text-cyan-400"
-                      : "text-amber-400"
-                  }`}
-                >
-                  {variance >= 0 ? "+" : ""}
-                  {variance.toFixed(2)}
-                </span>
-              </div>
-            </div>
-          )}
 
           <button
             type="submit"
