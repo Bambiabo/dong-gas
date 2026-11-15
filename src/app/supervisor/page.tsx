@@ -27,32 +27,36 @@ export default function SupervisorTerminal() {
 
   const startCamera = async (rear: boolean) => {
     try {
-      // Stop any existing tracks cleanly
+      // Clean up any existing video streams first
       if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach((track) => track.stop());
+        const oldStream = videoRef.current.srcObject as MediaStream;
+        oldStream.getTracks().forEach((track) => track.stop());
         videoRef.current.srcObject = null;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: rear ? { exact: "environment" } : "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      }).catch(async () => {
-        // Fallback for browsers that don't support exact environment mode
-        return await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: rear ? "environment" : "user" },
+      setCameraActive(true);
+
+      // Try with exact facingMode first, fallback to basic video constraints if unsupported
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: rear ? { exact: "environment" } : "user" },
+          audio: false,
         });
-      });
+      } catch (e) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: rear ? "environment" : "user" },
+          audio: false,
+        });
+      }
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        setCameraActive(true);
+        await videoRef.current.play().catch(() => {});
       }
     } catch (err) {
-      alert("Unable to access live camera. Please check camera permissions in your browser.");
+      console.error("Camera error:", err);
+      alert("Could not open camera. Please ensure permissions are allowed in your browser settings.");
       setCameraActive(false);
     }
   };
@@ -84,6 +88,9 @@ export default function SupervisorTerminal() {
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
       setCameraActive(false);
     }
   };
@@ -98,7 +105,6 @@ export default function SupervisorTerminal() {
       alert("Please fill in all opening details.");
       return;
     }
-    // Switch to closing stage
     setShiftStage("CLOSING");
     setMessage("Opening recorded successfully. Proceed to close shift when ready.");
   };
@@ -143,15 +149,13 @@ export default function SupervisorTerminal() {
           momo_collected: momo,
           total_collected: totalCollected,
           variance: variance,
-          proof_image: closingImage, // Stores closing verification proof
-          opening_proof_image: openingImage, // Optional if column exists, else ignored
+          proof_image: closingImage,
         },
       ]);
 
       if (error) throw error;
 
       setMessage("Shift successfully closed and reconciled!");
-      // Reset form
       setShiftStage("OPENING");
       setSupervisorName("");
       setOpeningMeter("");
@@ -178,7 +182,8 @@ export default function SupervisorTerminal() {
         <form onSubmit={handleOpenShiftSubmit} className="space-y-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
             <label className="block text-xs text-slate-400 mb-2">Opening Meter Live Camera Proof</label>
-            {!cameraActive ? (
+            
+            {!cameraActive && !openingImage && (
               <button
                 type="button"
                 onClick={() => startCamera(useRearCamera)}
@@ -186,7 +191,9 @@ export default function SupervisorTerminal() {
               >
                 Turn On Secure Camera Proof
               </button>
-            ) : (
+            )}
+
+            {cameraActive && (
               <div>
                 <div className="relative mb-3">
                   <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-lg bg-black" />
@@ -209,9 +216,19 @@ export default function SupervisorTerminal() {
             )}
 
             {openingImage && (
-              <div className="mt-3 text-center">
-                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Opening photo captured.</p>
-                <img src={openingImage} alt="Opening Proof" className="w-24 h-24 object-cover mx-auto rounded-lg border border-slate-700" />
+              <div className="mt-2 text-center">
+                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Opening photo captured successfully.</p>
+                <img src={openingImage} alt="Opening Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpeningImage(null);
+                    startCamera(useRearCamera);
+                  }}
+                  className="text-xs text-cyan-400 underline font-medium"
+                >
+                  Retake Photo
+                </button>
               </div>
             )}
           </div>
@@ -264,7 +281,8 @@ export default function SupervisorTerminal() {
         <form onSubmit={handleCloseShiftSubmit} className="space-y-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
             <label className="block text-xs text-slate-400 mb-2">Closing Meter Live Camera Proof</label>
-            {!cameraActive ? (
+            
+            {!cameraActive && !closingImage && (
               <button
                 type="button"
                 onClick={() => startCamera(useRearCamera)}
@@ -272,7 +290,9 @@ export default function SupervisorTerminal() {
               >
                 Turn On Secure Camera Proof
               </button>
-            ) : (
+            )}
+
+            {cameraActive && (
               <div>
                 <div className="relative mb-3">
                   <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-lg bg-black" />
@@ -295,9 +315,19 @@ export default function SupervisorTerminal() {
             )}
 
             {closingImage && (
-              <div className="mt-3 text-center">
-                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Closing photo captured.</p>
-                <img src={closingImage} alt="Closing Proof" className="w-24 h-24 object-cover mx-auto rounded-lg border border-slate-700" />
+              <div className="mt-2 text-center">
+                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Closing photo captured successfully.</p>
+                <img src={closingImage} alt="Closing Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClosingImage(null);
+                    startCamera(useRearCamera);
+                  }}
+                  className="text-xs text-cyan-400 underline font-medium"
+                >
+                  Retake Photo
+                </button>
               </div>
             )}
           </div>
