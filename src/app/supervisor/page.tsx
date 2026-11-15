@@ -208,9 +208,10 @@ export default function SupervisorTerminal() {
         return;
       }
 
-      // Safe payload matching verified table columns
+      // Payload matching supervisor_name and core metrics
       const { error } = await supabase.from("shifts").insert([
         {
+          supervisor_name: supervisorName,
           fuel_price: price,
           opening_meter: openM,
           closing_meter: closeM,
@@ -327,7 +328,7 @@ export default function SupervisorTerminal() {
           </div>
 
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Supervisor Name</label>
+            <label className="block text-xs text-slate-400 mb-1">Supervisor / Operator Name</label>
             <input
               type="text"
               value={supervisorName}

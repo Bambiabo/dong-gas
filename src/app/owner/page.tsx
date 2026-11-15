@@ -8,15 +8,36 @@ export default function OwnerDashboard() {
   const [pin, setPin] = useState("");
   const [shifts, setShifts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showChangePin, setShowChangePin] = useState(false);
+  const [newPin, setNewPin] = useState("");
+
+  const getStoredPin = () => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("owner_pin") || "7788";
+    }
+    return "7788";
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pin === "7788") {
+    if (pin === getStoredPin()) {
       setIsAuthenticated(true);
       fetchShifts();
     } else {
       alert("Invalid Owner PIN");
     }
+  };
+
+  const handleChangePin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPin.length < 4) {
+      alert("PIN must be at least 4 digits.");
+      return;
+    }
+    localStorage.setItem("owner_pin", newPin);
+    alert("Owner PIN updated successfully!");
+    setNewPin("");
+    setShowChangePin(false);
   };
 
   const fetchShifts = async () => {
@@ -63,19 +84,42 @@ export default function OwnerDashboard() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={fetchShifts}
-            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-xs rounded-lg font-medium text-white shadow"
+            onClick={() => setShowChangePin(!showChangePin)}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg font-medium text-slate-300"
           >
-            {loading ? "Refreshing..." : "Refresh Records 🔄"}
+            {showChangePin ? "Cancel" : "Change PIN ⚙️"}
+          </button>
+          <button
+            onClick={fetchShifts}
+            className="px-3 py-2 bg-cyan-600 hover:bg-cyan-500 text-xs rounded-lg font-medium text-white shadow"
+          >
+            {loading ? "Refreshing..." : "Refresh 🔄"}
           </button>
           <button
             onClick={() => setIsAuthenticated(false)}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg font-medium text-slate-300"
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg font-medium text-slate-300"
           >
             Lock Gate
           </button>
         </div>
       </div>
+
+      {showChangePin && (
+        <form onSubmit={handleChangePin} className="bg-slate-900 border border-slate-800 p-4 rounded-xl mb-6 max-w-sm space-y-3">
+          <h2 className="text-sm font-bold text-cyan-400">Update Owner PIN</h2>
+          <input
+            type="password"
+            value={newPin}
+            onChange={(e) => setNewPin(e.target.value)}
+            placeholder="Enter new 4+ digit PIN"
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm"
+            required
+          />
+          <button type="submit" className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold rounded-lg">
+            Save New PIN
+          </button>
+        </form>
+      )}
 
       {loading ? (
         <p className="text-center text-slate-400 py-10">Loading financial records...</p>
@@ -85,7 +129,7 @@ export default function OwnerDashboard() {
             <thead className="bg-slate-950 text-slate-400 uppercase text-xs border-b border-slate-800">
               <tr>
                 <th className="p-4">Date & Time</th>
-                <th className="p-4">Supervisor / Record</th>
+                <th className="p-4">Supervisor</th>
                 <th className="p-4">Liters Sold</th>
                 <th className="p-4">Cash (GHS)</th>
                 <th className="p-4">MoMo (GHS)</th>
@@ -106,7 +150,6 @@ export default function OwnerDashboard() {
                 const totalCollected = cash + momo;
                 const variance = totalCollected - expectedRevenue;
 
-                // Format timestamp to include date and exact time (e.g., 11/15/2026, 10:45 AM)
                 const formattedDateTime = shift.created_at
                   ? new Date(shift.created_at).toLocaleString([], {
                       dateStyle: "short",
