@@ -10,16 +10,21 @@ const supabase = createClient(
 
 export default function SupervisorPage() {
   const [attendantName, setAttendantName] = useState("");
+  const [fuelPrice, setFuelPrice] = useState("");
   const [openingMeter, setOpeningMeter] = useState("");
   const [closingMeter, setClosingMeter] = useState("");
-  const [cashSubmitted, setCashSubmitted] = useState("");
 
-  // Live Camera States
+  // Photo states for Opening & Closing
+  const [stepType, setStepType] = useState<"opening" | "closing">("opening");
   const [cameraActive, setCameraActive] = useState(false);
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
-  const [cameraError, setCameraError] = useState("");
+  
+  const [openingImage, setOpeningImage] = useState<string | null>(null);
+  const [openingBlob, setOpeningBlob] = useState<Blob | null>(null);
 
+  const [closingImage, setClosingImage] = useState<string | null>(null);
+  const [closingBlob, setClosingBlob] = useState<Blob | null>(null);
+
+  const [cameraError, setCameraError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -27,35 +32,33 @@ export default function SupervisorPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Stop camera stream cleanly on unmount
   useEffect(() => {
     return () => {
       stopCamera();
     };
   }, []);
 
-  const startCamera = async () => {
+  const startCamera = (type: "opening" | "closing") => {
+    setStepType(type);
     setCameraError("");
-    setCapturedImage(null);
-    setCapturedBlob(null);
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      setCameraActive(true);
-
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      }, 50);
+      navigator.mediaDevices
+        .getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        })
+        .then((stream) => {
+          streamRef.current = stream;
+          setCameraActive(true);
+          setTimeout(() => {
+            if (videoRef.current) videoRef.current.srcObject = stream;
+          }, 50);
+        })
+        .catch(() => {
+          setCameraError("Camera access denied or unavailable.");
+        });
     } catch {
-      setCameraError(
-        "Camera access denied or unavailable. Please allow camera permissions in your browser settings."
-      );
+      setCameraError("Unable to access camera.");
     }
   };
 
@@ -80,20 +83,25 @@ export default function SupervisorPage() {
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Stamp current date/time directly onto the proof photo
     const timestamp = new Date().toLocaleString();
     ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-    ctx.fillRect(10, canvas.height - 42, 260, 32);
-    ctx.fillStyle = "#10b981";
-    ctx.font = "bold 16px sans-serif";
-    ctx.fillText(`LIVE: ${timestamp}`, 18, canvas.height - 20);
+    ctx.fillRect(10, canvas.height - 42, 280, 32);
+    ctx.fillStyle = stepType === "opening" ? "#38bdf8" : "#10b981";
+    ctx.font = "bold 15px sans-serif";
+    ctx.fillText(`${stepType.toUpperCase()} - ${timestamp}`, 18, canvas.height - 20);
 
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    setCapturedImage(dataUrl);
 
     canvas.toBlob(
       (blob) => {
-        if (blob) setCapturedBlob(blob);
+        if (!blob) return;
+        if (stepType === "opening") {
+          setOpeningImage(dataUrl);
+          setOpeningBlob(blob);
+        } else {
+          setClosingImage(dataUrl);
+          setClosingBlob(blob);
+        }
       },
       "image/jpeg",
       0.85
@@ -102,10 +110,17 @@ export default function SupervisorPage() {
     stopCamera();
   };
 
+  // Calculations
+  const openVal = parseFloat(openingMeter) || 0;
+  const closeVal = parseFloat(closingMeter) || 0;
+  const priceVal = parseFloat(fuelPrice) || 0;
+  const litersSold = Math.max(0, closeVal - openVal);
+  const totalSales = litersSold * priceVal;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!capturedBlob) {
-      setMessage("Error: You must capture a live photo of the closing meter.");
+    if (!openingBlob || !closingBlob) {
+      setMessage("Error: Both opening and closing live meter photos are required.");
       return;
     }
 
@@ -113,57 +128,56 @@ export default function SupervisorPage() {
     setMessage("");
 
     try {
-      // 1. Upload live photo to Supabase Storage bucket "meter-photos"
-      const fileName = `meter_${Date.now()}.jpg`;
-      const { error: uploadError } = await supabase.storage
+      // 1. Upload Opening Photo
+      const openFileName = `opening_${Date.now()}.jpg`;
+      const { error: openUploadErr } = await supabase.storage
         .from("meter-photos")
-        .upload(fileName, capturedBlob, {
-          contentType: "image/jpeg",
-          upsert: false,
-        });
+        .upload(openFileName, openingBlob, { contentType: "image/jpeg" });
 
-      if (uploadError) {
-        throw new Error(`Photo upload failed: ${uploadError.message}`);
-      }
+      if (openUploadErr) throw new Error(openUploadErr.message);
+      const { data: openUrlData } = supabase.storage.from("meter-photos").getPublicUrl(openFileName);
 
-      const { data: publicUrlData } = supabase.storage
+      // 2. Upload Closing Photo
+      const closeFileName = `closing_${Date.now()}.jpg`;
+      const { error: closeUploadErr } = await supabase.storage
         .from("meter-photos")
-        .getPublicUrl(fileName);
+        .upload(closeFileName, closingBlob, { contentType: "image/jpeg" });
 
-      // 2. Save shift record with the live photo URL
-      const open = parseFloat(openingMeter) || 0;
-      const close = parseFloat(closingMeter) || 0;
-      const litersSold = Math.max(0, close - open);
-      const cash = parseFloat(cashSubmitted) || 0;
+      if (closeUploadErr) throw new Error(closeUploadErr.message);
+      const { data: closeUrlData } = supabase.storage.from("meter-photos").getPublicUrl(closeFileName);
 
-      const { error: insertError } = await supabase.from("shifts").insert([
+      // 3. Save Shift Data to DB
+      const { error: insertErr } = await supabase.from("shifts").insert([
         {
           attendant_name: attendantName,
-          opening_meter: open,
-          closing_meter: close,
+          fuel_price: priceVal,
+          opening_meter: openVal,
+          closing_meter: closeVal,
           liters_sold: litersSold,
-          total_sales: cash,
-          cash_submitted: cash,
+          total_sales: totalSales,
+          cash_submitted: totalSales,
           variance: 0,
-          meter_photo_url: publicUrlData.publicUrl,
+          opening_photo_url: openUrlData.publicUrl,
+          meter_photo_url: closeUrlData.publicUrl,
         },
       ]);
 
-      if (insertError) {
-        throw new Error(`Database error: ${insertError.message}`);
-      }
+      if (insertErr) throw new Error(insertErr.message);
 
-      setMessage("Shift closed and live meter proof saved!");
+      setMessage("Shift successfully closed, calculated, and saved!");
+      
+      // Reset form
       setAttendantName("");
+      setFuelPrice("");
       setOpeningMeter("");
       setClosingMeter("");
-      setCashSubmitted("");
-      setCapturedImage(null);
-      setCapturedBlob(null);
+      setOpeningImage(null);
+      setOpeningBlob(null);
+      setClosingImage(null);
+      setClosingBlob(null);
     } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to submit shift.";
-      setMessage(`Error: ${errorMessage}`);
+      const errorMsg = err instanceof Error ? err.message : "Submission failed";
+      setMessage(`Error: ${errorMsg}`);
     } finally {
       setSubmitting(false);
     }
@@ -173,17 +187,13 @@ export default function SupervisorPage() {
     <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex items-center justify-center">
       <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
         <div>
-          <h1 className="text-2xl font-bold">Supervisor — Close Shift</h1>
-          <p className="text-slate-400 text-sm">
-            Enter opening & closing meter values with live camera proof
-          </p>
+          <h1 className="text-2xl font-bold">Dong Gas — Shift Manager</h1>
+          <p className="text-slate-400 text-sm">Capture opening/closing proofs & auto-calculate sales</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-slate-300 mb-1">
-              Supervisor / Attendant Name
-            </label>
+            <label className="block text-sm text-slate-300 mb-1">Supervisor / Attendant Name</label>
             <input
               type="text"
               required
@@ -194,138 +204,141 @@ export default function SupervisorPage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm text-slate-300 mb-1">
-                Opening Value
-              </label>
-              <input
-                type="number"
-                step="any"
-                required
-                value={openingMeter}
-                onChange={(e) => setOpeningMeter(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white"
-                placeholder="0.00"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-slate-300 mb-1">
-                Closing Value
-              </label>
-              <input
-                type="number"
-                step="any"
-                required
-                value={closingMeter}
-                onChange={(e) => setClosingMeter(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white"
-                placeholder="0.00"
-              />
-            </div>
-          </div>
-
           <div>
-            <label className="block text-sm text-slate-300 mb-1">
-              Cash Submitted (GHS)
-            </label>
+            <label className="block text-sm text-slate-300 mb-1">Current Fuel Price per Liter (GHS)</label>
             <input
               type="number"
               step="any"
               required
-              value={cashSubmitted}
-              onChange={(e) => setCashSubmitted(e.target.value)}
+              value={fuelPrice}
+              onChange={(e) => setFuelPrice(e.target.value)}
               className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white"
               placeholder="0.00"
             />
           </div>
 
-          {/* Live Camera Capture Section (Gallery Upload Disabled) */}
-          <div className="space-y-2 pt-1">
-            <label className="block text-sm text-slate-300">
-              Closing Meter Proof (Live Camera Only)
-            </label>
-
-            {cameraError && (
-              <p className="text-xs text-red-400 bg-red-950/50 border border-red-800 rounded-lg p-2.5">
-                {cameraError}
-              </p>
-            )}
-
-            {!cameraActive && !capturedImage && (
+          {/* OPENING METER SECTION */}
+          <div className="space-y-2 p-3 bg-slate-950/50 rounded-xl border border-slate-800">
+            <label className="block text-sm font-semibold text-sky-400">1. Opening Meter (Start of Work)</label>
+            <input
+              type="number"
+              step="any"
+              required
+              value={openingMeter}
+              onChange={(e) => setOpeningMeter(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white"
+              placeholder="Opening value"
+            />
+            {!openingImage ? (
               <button
                 type="button"
-                onClick={startCamera}
-                className="w-full py-3 px-4 bg-sky-600 hover:bg-sky-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+                onClick={() => startCamera("opening")}
+                className="w-full py-2 bg-sky-600 hover:bg-sky-500 rounded-xl text-sm font-medium"
               >
-                Open Live Camera
+                Capture Opening Live Photo
               </button>
-            )}
-
-            {cameraActive && (
+            ) : (
               <div className="space-y-2">
-                <div className="relative rounded-xl overflow-hidden border border-slate-700 bg-black">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full max-h-64 object-cover"
-                  />
-                </div>
+                <img src={openingImage} alt="Opening meter" className="w-full rounded-lg max-h-40 object-cover border border-sky-500" />
+                <button
+                  type="button"
+                  onClick={() => startCamera("opening")}
+                  className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs"
+                >
+                  Retake Opening Photo
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* CLOSING METER SECTION */}
+          <div className="space-y-2 p-3 bg-slate-950/50 rounded-xl border border-slate-800">
+            <label className="block text-sm font-semibold text-emerald-400">2. Closing Meter (End of Work)</label>
+            <input
+              type="number"
+              step="any"
+              required
+              value={closingMeter}
+              onChange={(e) => setClosingMeter(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white"
+              placeholder="Closing value"
+            />
+            {!closingImage ? (
+              <button
+                type="button"
+                onClick={() => startCamera("closing")}
+                className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-sm font-medium"
+              >
+                Capture Closing Live Photo
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <img src={closingImage} alt="Closing meter" className="w-full rounded-lg max-h-40 object-cover border border-emerald-500" />
+                <button
+                  type="button"
+                  onClick={() => startCamera("closing")}
+                  className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs"
+                >
+                  Retake Closing Photo
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* AUTO-CALCULATION SUMMARY */}
+          {(openVal > 0 || closeVal > 0) && (
+            <div className="p-3 bg-slate-800/80 rounded-xl space-y-1 text-sm border border-slate-700">
+              <div className="flex justify-between text-slate-300">
+                <span>Liters Sold:</span>
+                <span className="font-bold text-white">{litersSold.toFixed(2)} L</span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Total Expected Sales:</span>
+                <span className="font-bold text-emerald-400">GHS {totalSales.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* CAMERA MODAL / PREVIEW */}
+          {cameraActive && (
+            <div className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-4">
+              <div className="relative max-w-md w-full bg-slate-900 rounded-2xl p-4 space-y-3">
+                <p className="text-sm font-medium text-center text-slate-300">
+                  Take Live Photo for {stepType.toUpperCase()} Meter
+                </p>
+                <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-xl object-cover max-h-72" />
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={capturePhoto}
-                    className="py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-semibold"
+                    className="py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold"
                   >
-                    Capture Photo
+                    Capture
                   </button>
                   <button
                     type="button"
                     onClick={stopCamera}
-                    className="py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium"
+                    className="py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl"
                   >
                     Cancel
                   </button>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {capturedImage && (
-              <div className="space-y-2">
-                <img
-                  src={capturedImage}
-                  alt="Captured meter reading"
-                  className="w-full rounded-xl border border-emerald-600 max-h-64 object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={startCamera}
-                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm font-medium"
-                >
-                  Retake Live Photo
-                </button>
-              </div>
-            )}
-
-            <canvas ref={canvasRef} className="hidden" />
-          </div>
+          <canvas ref={canvasRef} className="hidden" />
 
           <button
             type="submit"
-            disabled={submitting || !capturedBlob}
+            disabled={submitting || !openingBlob || !closingBlob}
             className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 py-3 rounded-xl font-semibold transition-colors"
           >
-            {submitting ? "Uploading & Saving..." : "Submit Shift Close"}
+            {submitting ? "Processing Shift..." : "Submit & Notify Owner"}
           </button>
 
           {message && (
-            <p
-              className={`text-sm text-center pt-2 ${
-                message.startsWith("Error") ? "text-red-400" : "text-emerald-400"
-              }`}
-            >
+            <p className={`text-sm text-center pt-2 ${message.startsWith("Error") ? "text-red-400" : "text-emerald-400"}`}>
               {message}
             </p>
           )}
