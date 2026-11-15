@@ -11,8 +11,9 @@ export default function OwnerDashboard() {
   const [showChangePin, setShowChangePin] = useState(false);
   const [newPin, setNewPin] = useState("");
   
-  // UI filters & modal states
+  // UI filters, grouping & modal states
   const [searchTerm, setSearchTerm] = useState("");
+  const [timeframe, setTimeframe] = useState<"all" | "weekly" | "monthly">("weekly");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const getStoredPin = () => {
@@ -57,54 +58,31 @@ export default function OwnerDashboard() {
     setLoading(false);
   };
 
-  // Export financial data as CSV
-  const exportToCSV = () => {
-    if (shifts.length === 0) return alert("No data to export.");
-    const headers = ["Date", "Supervisor", "Liters Sold", "Fuel Price", "Cash (GHS)", "MoMo (GHS)", "Expenses (GHS)", "Total Collected", "Variance"];
-    const rows = shifts.map(shift => {
-      const openM = shift.opening_meter || 0;
-      const closeM = shift.closing_meter || 0;
-      const price = shift.fuel_price || 10.40;
-      const liters = Math.max(0, closeM - openM);
-      const rev = liters * price;
-      const cash = shift.cash_collected || 0;
-      const momo = shift.momo_collected || 0;
-      const exp = shift.expenses || 0;
-      const total = cash + momo;
-      const variance = total - rev - exp;
-      return [
-        shift.created_at ? new Date(shift.created_at).toLocaleString() : "",
-        shift.supervisor_name || shift.supervisor || "Supervisor",
-        liters,
-        price,
-        cash,
-        momo,
-        exp,
-        total,
-        variance
-      ];
-    });
-
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `dong_gas_audit_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // Helper to get week number or month string for grouping
+  const getShiftPeriodKey = (dateString: string, type: "weekly" | "monthly") => {
+    const date = new Date(dateString);
+    if (type === "monthly") {
+      return date.toLocaleString('default', { month: 'long', year: 'numeric' });
+    } else {
+      // Weekly grouping (Year - W[WeekNumber])
+      const startOfYear = new Date(date.getFullYear(), 0, 1);
+      const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+      const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
+      return `Week ${weekNumber}, ${date.getFullYear()}`;
+    }
   };
 
-  // Computed metrics for KPI overview cards
-  const totalRevenue = shifts.reduce((acc, s) => acc + (s.cash_collected || 0) + (s.momo_collected || 0), 0);
-  const totalLitres = shifts.reduce((acc, s) => acc + Math.max(0, (s.closing_meter || 0) - (s.opening_meter || 0)), 0);
-  const totalCash = shifts.reduce((acc, s) => acc + (s.cash_collected || 0), 0);
-  const totalMomo = shifts.reduce((acc, s) => acc + (s.momo_collected || 0), 0);
-
+  // Filter shifts based on search term
   const filteredShifts = shifts.filter(s => {
     const name = (s.supervisor_name || s.supervisor || "").toLowerCase();
     return name.includes(searchTerm.toLowerCase());
   });
+
+  // Computed metrics for KPI overview cards based on filtered list
+  const totalRevenue = filteredShifts.reduce((acc, s) => acc + (s.cash_collected || 0) + (s.momo_collected || 0), 0);
+  const totalLitres = filteredShifts.reduce((acc, s) => acc + Math.max(0, (s.closing_meter || 0) - (s.opening_meter || 0)), 0);
+  const totalCash = filteredShifts.reduce((acc, s) => acc + (s.cash_collected || 0), 0);
+  const totalMomo = filteredShifts.reduce((acc, s) => acc + (s.momo_collected || 0), 0);
 
   if (!isAuthenticated) {
     return (
@@ -137,22 +115,22 @@ export default function OwnerDashboard() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-6 md:p-10 max-w-7xl mx-auto space-y-8">
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-6">
+      {/* Top Header (Hidden on print) */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-6 print:hidden">
         <div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="text-xs font-mono uppercase tracking-widest text-slate-400">Dong Gas Enterprise</span>
           </div>
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight mt-1">Owner Financial Audit</h1>
-          <p className="text-xs md:text-sm text-slate-400">Live operational oversight, shift reconciliations, and audit metrics.</p>
+          <p className="text-xs md:text-sm text-slate-400">Grouped operational oversight and shift reconciliations.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={exportToCSV}
+            onClick={() => window.print()}
             className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs rounded-xl font-medium text-slate-300 transition flex items-center gap-1.5"
           >
-            📥 Export CSV
+            🖨️ Print Report
           </button>
           <button
             onClick={() => setShowChangePin(!showChangePin)}
@@ -177,7 +155,7 @@ export default function OwnerDashboard() {
 
       {/* Change PIN Card */}
       {showChangePin && (
-        <form onSubmit={handleChangePin} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-sm space-y-3 shadow-xl">
+        <form onSubmit={handleChangePin} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-sm space-y-3 shadow-xl print:hidden">
           <h2 className="text-sm font-bold text-cyan-400">Update Security PIN</h2>
           <input
             type="password"
@@ -193,33 +171,29 @@ export default function OwnerDashboard() {
         </form>
       )}
 
-      {/* KPI Financial Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm">
-          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Gross Revenue</p>
-          <p className="text-2xl font-black text-white mt-1 font-mono">₵{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-          <span className="text-[10px] text-emerald-400 font-medium mt-1 inline-block">● Verified Collections</span>
+      {/* Timeframe & Search Controls (Hidden on print) */}
+      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-slate-900/40 p-3 rounded-2xl border border-slate-800 print:hidden">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <button
+            onClick={() => setTimeframe("weekly")}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${timeframe === "weekly" ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}
+          >
+            Weekly View
+          </button>
+          <button
+            onClick={() => setTimeframe("monthly")}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${timeframe === "monthly" ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}
+          >
+            Monthly View
+          </button>
+          <button
+            onClick={() => setTimeframe("all")}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${timeframe === "all" ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}
+          >
+            All-Time
+          </button>
         </div>
-        <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm">
-          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Volume Dispensed</p>
-          <p className="text-2xl font-black text-cyan-400 mt-1 font-mono">{totalLitres.toLocaleString()} <span className="text-sm font-normal text-slate-400">Liters</span></p>
-          <span className="text-[10px] text-cyan-400 font-medium mt-1 inline-block">● Meter Differential</span>
-        </div>
-        <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm">
-          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Cash Drops Total</p>
-          <p className="text-2xl font-black text-emerald-400 mt-1 font-mono">₵{totalCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-          <span className="text-[10px] text-slate-400 font-medium mt-1 inline-block">Physical cash drawer</span>
-        </div>
-        <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm">
-          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Mobile Money Total</p>
-          <p className="text-2xl font-black text-blue-400 mt-1 font-mono">₵{totalMomo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-          <span className="text-[10px] text-slate-400 font-medium mt-1 inline-block">MoMo merchant receipts</span>
-        </div>
-      </div>
-
-      {/* Filter / Search Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-slate-900/40 p-3 rounded-2xl border border-slate-800">
-        <div className="w-full sm:w-72">
+        <div className="w-full sm:w-64">
           <input
             type="text"
             value={searchTerm}
@@ -228,8 +202,29 @@ export default function OwnerDashboard() {
             className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-cyan-500 text-slate-200"
           />
         </div>
-        <div className="text-xs text-slate-400 px-2">
-          Showing <span className="font-bold text-white">{filteredShifts.length}</span> recorded shifts
+      </div>
+
+      {/* KPI Financial Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm print:border-slate-300 print:bg-white print:text-black">
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider print:text-slate-600">Total Gross Revenue</p>
+          <p className="text-2xl font-black text-white mt-1 font-mono print:text-black">₵{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <span className="text-[10px] text-emerald-400 font-medium mt-1 inline-block print:text-emerald-700">● Verified Collections</span>
+        </div>
+        <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm print:border-slate-300 print:bg-white print:text-black">
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider print:text-slate-600">Total Volume Dispensed</p>
+          <p className="text-2xl font-black text-cyan-400 mt-1 font-mono print:text-blue-700">{totalLitres.toLocaleString()} <span className="text-sm font-normal text-slate-400 print:text-slate-600">Liters</span></p>
+          <span className="text-[10px] text-cyan-400 font-medium mt-1 inline-block print:text-blue-700">● Meter Differential</span>
+        </div>
+        <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm print:border-slate-300 print:bg-white print:text-black">
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider print:text-slate-600">Cash Drops Total</p>
+          <p className="text-2xl font-black text-emerald-400 mt-1 font-mono print:text-black">₵{totalCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <span className="text-[10px] text-slate-400 font-medium mt-1 inline-block print:text-slate-600">Physical cash drawer</span>
+        </div>
+        <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl backdrop-blur-sm print:border-slate-300 print:bg-white print:text-black">
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider print:text-slate-600">Mobile Money Total</p>
+          <p className="text-2xl font-black text-blue-400 mt-1 font-mono print:text-black">₵{totalMomo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <span className="text-[10px] text-slate-400 font-medium mt-1 inline-block print:text-slate-600">MoMo merchant receipts</span>
         </div>
       </div>
 
@@ -240,10 +235,10 @@ export default function OwnerDashboard() {
           <p className="text-xs text-slate-400 font-medium">Loading secure financial records...</p>
         </div>
       ) : (
-        <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl backdrop-blur-md">
+        <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl backdrop-blur-md print:bg-white print:border-none print:shadow-none">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-300">
-              <thead className="bg-slate-950 text-slate-400 uppercase text-[11px] font-mono tracking-wider border-b border-slate-800">
+            <table className="w-full text-left text-sm text-slate-300 print:text-black">
+              <thead className="bg-slate-950 text-slate-400 uppercase text-[11px] font-mono tracking-wider border-b border-slate-800 print:bg-slate-200 print:text-black">
                 <tr>
                   <th className="p-4.5">Date & Time</th>
                   <th className="p-4.5">Supervisor</th>
@@ -253,10 +248,10 @@ export default function OwnerDashboard() {
                   <th className="p-4.5">Expenses</th>
                   <th className="p-4.5">Total Collected</th>
                   <th className="p-4.5">Variance</th>
-                  <th className="p-4.5 text-center">Meter Proof</th>
+                  <th className="p-4.5 text-center print:hidden">Meter Proof</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60">
+              <tbody className="divide-y divide-slate-800/60 print:divide-slate-300">
                 {filteredShifts.map((shift) => {
                   const openM = shift.opening_meter || 0;
                   const closeM = shift.closing_meter || 0;
@@ -291,26 +286,26 @@ export default function OwnerDashboard() {
                     null;
 
                   return (
-                    <tr key={shift.id || shift.created_at} className="hover:bg-slate-850/60 transition">
-                      <td className="p-4.5 text-xs font-mono text-cyan-400 whitespace-nowrap">{formattedDateTime}</td>
-                      <td className="p-4.5 font-semibold text-white">{supName}</td>
-                      <td className="p-4.5 font-mono text-slate-300">{litersSold.toLocaleString()} L</td>
-                      <td className="p-4.5 font-mono text-emerald-400">₵{cash.toFixed(2)}</td>
-                      <td className="p-4.5 font-mono text-blue-400">₵{momo.toFixed(2)}</td>
-                      <td className="p-4.5 font-mono text-slate-400">₵{exp.toFixed(2)}</td>
-                      <td className="p-4.5 font-mono font-bold text-white">₵{totalCollected.toFixed(2)}</td>
+                    <tr key={shift.id || shift.created_at} className="hover:bg-slate-850/60 transition print:hover:bg-transparent">
+                      <td className="p-4.5 text-xs font-mono text-cyan-400 whitespace-nowrap print:text-black">{formattedDateTime}</td>
+                      <td className="p-4.5 font-semibold text-white print:text-black">{supName}</td>
+                      <td className="p-4.5 font-mono text-slate-300 print:text-black">{litersSold.toLocaleString()} L</td>
+                      <td className="p-4.5 font-mono text-emerald-400 print:text-black">₵{cash.toFixed(2)}</td>
+                      <td className="p-4.5 font-mono text-blue-400 print:text-black">₵{momo.toFixed(2)}</td>
+                      <td className="p-4.5 font-mono text-slate-400 print:text-black">₵{exp.toFixed(2)}</td>
+                      <td className="p-4.5 font-mono font-bold text-white print:text-black">₵{totalCollected.toFixed(2)}</td>
                       <td className="p-4.5 font-mono">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold ${
                           Math.abs(variance) < 1 
-                            ? 'bg-emerald-500/10 text-emerald-400' 
+                            ? 'bg-emerald-500/10 text-emerald-400 print:bg-transparent print:text-black' 
                             : variance > 0 
-                            ? 'bg-cyan-500/10 text-cyan-400' 
-                            : 'bg-rose-500/10 text-rose-400'
+                            ? 'bg-cyan-500/10 text-cyan-400 print:bg-transparent print:text-black' 
+                            : 'bg-rose-500/10 text-rose-400 print:bg-transparent print:text-black'
                         }`}>
                           {variance >= 0 ? "+" : ""}₵{variance.toFixed(2)}
                         </span>
                       </td>
-                      <td className="p-4.5 text-center">
+                      <td className="p-4.5 text-center print:hidden">
                         {proofUrl ? (
                           <button
                             onClick={() => setSelectedImage(proofUrl)}
@@ -340,7 +335,7 @@ export default function OwnerDashboard() {
 
       {/* Image Preview Modal */}
       {selectedImage && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 max-w-lg w-full space-y-4 shadow-2xl">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-bold text-white">Meter Photo Proof Verification</h3>
