@@ -20,7 +20,7 @@ export default function SupervisorTerminal() {
   const [expenses, setExpenses] = useState("");
   const [closingImage, setClosingImage] = useState<string | null>(null);
 
-  // UI / OCR state
+  // UI / AI Vision state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scannedPreviewValue, setScannedPreviewValue] = useState<string | null>(null);
@@ -31,9 +31,6 @@ export default function SupervisorTerminal() {
   const [cameraActive, setCameraActive] = useState(false);
   const [useRearCamera, setUseRearCamera] = useState(true);
 
-  // ──────────────────────────────────────────────
-  // Helpers
-  // ──────────────────────────────────────────────
   const showMessage = (type: "info" | "success" | "error", text: string) => {
     setMessage({ type, text });
   };
@@ -47,15 +44,11 @@ export default function SupervisorTerminal() {
     setCameraActive(false);
   };
 
-  // ──────────────────────────────────────────────
-  // Fetch previous closing meter or owner baseline
-  // ──────────────────────────────────────────────
   const fetchPreviousClosingMeter = async () => {
     try {
       setIsLoadingPrevious(true);
       showMessage("info", "Syncing previous shift meter…");
 
-      // 1. Check for latest closed shift (Standard continuous operation)
       const { data: shiftData, error: shiftError } = await supabase
         .from("shifts")
         .select("closing_meter")
@@ -69,7 +62,6 @@ export default function SupervisorTerminal() {
         return;
       }
 
-      // 2. If no shifts exist, check if owner configured a manual reset baseline
       const { data: baseData, error: baseError } = await supabase
         .from("station_baselines")
         .select("baseline_meter")
@@ -98,9 +90,6 @@ export default function SupervisorTerminal() {
     return () => stopCamera();
   }, []);
 
-  // ──────────────────────────────────────────────
-  // Camera & OCR
-  // ──────────────────────────────────────────────
   const startCamera = async (rear: boolean) => {
     try {
       stopCamera();
@@ -137,60 +126,31 @@ export default function SupervisorTerminal() {
     startCamera(next);
   };
 
-  const runAdvancedOCR = async (dataUrl: string) => {
+  // ──────────────────────────────────────────────
+  // Cloud AI Vision OCR Handler
+  // ──────────────────────────────────────────────
+  const runAIVisionOCR = async (dataUrl: string) => {
     try {
       setIsScanning(true);
-      showMessage("info", "Running high-accuracy OCR…");
+      showMessage("info", "Analyzing meter photo with AI Vision…");
 
-      const processedDataUrl = await new Promise<string>((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const ctx = canvas.getContext("2d");
-          canvas.width = img.width * 2;
-          canvas.height = img.height * 2;
-          if (ctx) {
-            ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL("image/jpeg", 1.0));
-          } else {
-            resolve(dataUrl);
-          }
-        };
-        img.src = dataUrl;
+      const res = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl }),
       });
 
-      if (!(window as any).Tesseract) {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement("script");
-          script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
-          script.onload = resolve;
-          script.onerror = reject;
-          document.head.appendChild(script);
-        });
-      }
+      const data = await res.json();
 
-      const Tesseract = (window as any).Tesseract;
-      const worker = await Tesseract.createWorker("eng");
-
-      await worker.setParameters({
-        tessedit_char_whitelist: "0123456789",
-      });
-
-      const result = await worker.recognize(processedDataUrl);
-      await worker.terminate();
-
-      const digits = (result.data.text || "").replace(/[^0-9]/g, "");
-
-      if (digits.length >= 4) {
-        setScannedPreviewValue(digits);
-        showMessage("success", "OCR successful — please verify the reading.");
+      if (res.ok && data.digits && data.digits.length >= 3) {
+        setScannedPreviewValue(data.digits);
+        showMessage("success", "AI successfully read the meter! Review and accept.");
       } else {
-        showMessage("error", "Could not reliably extract digits.");
+        showMessage("error", "AI could not read digits clearly. Please enter manually.");
       }
     } catch (err) {
       console.error(err);
-      showMessage("error", "OCR failed.");
+      showMessage("error", "AI Vision processing failed.");
     } finally {
       setIsScanning(false);
     }
@@ -206,7 +166,7 @@ export default function SupervisorTerminal() {
     if (!ctx) return;
 
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
 
     if (shiftStage === "OPENING") {
       setOpeningImage(dataUrl);
@@ -215,7 +175,7 @@ export default function SupervisorTerminal() {
     }
 
     stopCamera();
-    await runAdvancedOCR(dataUrl);
+    await runAIVisionOCR(dataUrl);
   };
 
   const confirmScannedValue = () => {
@@ -224,15 +184,11 @@ export default function SupervisorTerminal() {
       setClosingMeter(scannedPreviewValue);
     }
     setScannedPreviewValue(null);
-    showMessage("success", "Meter value applied.");
+    showMessage("success", "AI Meter reading applied.");
   };
 
-  // ──────────────────────────────────────────────
-  // Form handlers
-  // ──────────────────────────────────────────────
   const handleOpenShiftSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!supervisorName.trim()) {
       alert("Please enter the Supervisor Name.");
       return;
@@ -294,7 +250,6 @@ export default function SupervisorTerminal() {
       if (error) throw error;
 
       setOpeningMeter(closeM.toString());
-
       setShiftStage("OPENING");
       setSupervisorName("");
       setClosingMeter("");
@@ -305,11 +260,11 @@ export default function SupervisorTerminal() {
       setClosingImage(null);
       setScannedPreviewValue(null);
 
-      showMessage("success", `Shift closed successfully. Next opening meter set to ${closeM} L`);
+      showMessage("success", `Shift closed successfully. Next opening set to ${closeM} L`);
     } catch (err: any) {
       console.error(err);
       alert(`Error saving shift: ${err.message}`);
-      showMessage("error", "Failed to save shift. Please try again.");
+      showMessage("error", "Failed to save shift.");
     } finally {
       setIsSubmitting(false);
     }
@@ -335,9 +290,7 @@ export default function SupervisorTerminal() {
       {shiftStage === "OPENING" ? (
         <form onSubmit={handleOpenShiftSubmit} className="space-y-5">
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
-              Supervisor Name
-            </label>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">Supervisor Name</label>
             <input
               type="text"
               value={supervisorName}
@@ -349,9 +302,7 @@ export default function SupervisorTerminal() {
           </div>
 
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-            <label className="block text-xs font-medium text-slate-400 mb-3">
-              Opening Meter · Photo Proof + OCR
-            </label>
+            <label className="block text-xs font-medium text-slate-400 mb-3">Opening Meter · AI Vision Scan</label>
 
             {!cameraActive && !openingImage && (
               <button
@@ -387,7 +338,7 @@ export default function SupervisorTerminal() {
                   disabled={isScanning}
                   className="w-full py-3.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 font-semibold rounded-xl text-sm transition"
                 >
-                  {isScanning ? "Processing OCR…" : "Snap & Scan Meter 📸"}
+                  {isScanning ? "AI Analyzing Meter… 🤖" : "Snap & Read with AI 📸"}
                 </button>
               </div>
             )}
@@ -403,10 +354,8 @@ export default function SupervisorTerminal() {
 
                 {scannedPreviewValue && (
                   <div className="bg-slate-800/80 border border-cyan-500/40 rounded-xl p-3.5">
-                    <p className="text-xs text-slate-400 mb-1">Detected reading</p>
-                    <p className="text-xl font-mono font-bold text-cyan-400 mb-3">
-                      {scannedPreviewValue}
-                    </p>
+                    <p className="text-xs text-slate-400 mb-1">AI Detected Reading</p>
+                    <p className="text-xl font-mono font-bold text-cyan-400">{scannedPreviewValue}</p>
                   </div>
                 )}
 
@@ -427,9 +376,7 @@ export default function SupervisorTerminal() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                Fuel Price (GHS/L)
-              </label>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Fuel Price (GHS/L)</label>
               <input
                 type="number"
                 step="0.01"
@@ -442,9 +389,7 @@ export default function SupervisorTerminal() {
 
             <div>
               <div className="flex justify-between items-center mb-1.5">
-                <label className="text-xs font-medium text-slate-400">
-                  Opening Meter (L)
-                </label>
+                <label className="text-xs font-medium text-slate-400">Opening Meter (L)</label>
                 <button
                   type="button"
                   onClick={fetchPreviousClosingMeter}
@@ -460,9 +405,7 @@ export default function SupervisorTerminal() {
                 readOnly
                 className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-300 cursor-not-allowed focus:outline-none"
               />
-              <p className="text-[10px] text-slate-500 mt-1">
-                Auto-carried & locked from previous closing
-              </p>
+              <p className="text-[10px] text-slate-500 mt-1">Locked from previous closing</p>
             </div>
           </div>
 
@@ -476,9 +419,7 @@ export default function SupervisorTerminal() {
       ) : (
         <form onSubmit={handleCloseShiftSubmit} className="space-y-5">
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-            <label className="block text-xs font-medium text-slate-400 mb-3">
-              Closing Meter · Photo Proof + OCR
-            </label>
+            <label className="block text-xs font-medium text-slate-400 mb-3">Closing Meter · AI Vision Scan</label>
 
             {!cameraActive && !closingImage && (
               <button
@@ -514,7 +455,7 @@ export default function SupervisorTerminal() {
                   disabled={isScanning}
                   className="w-full py-3.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 font-semibold rounded-xl text-sm transition"
                 >
-                  {isScanning ? "Processing OCR…" : "Snap & Scan Meter 📸"}
+                  {isScanning ? "AI Analyzing Meter… 🤖" : "Snap & Read with AI 📸"}
                 </button>
               </div>
             )}
@@ -529,23 +470,20 @@ export default function SupervisorTerminal() {
                 />
 
                 {scannedPreviewValue && (
-                  <div className="bg-slate-800/80 border border-cyan-500/40 rounded-xl p-3.5">
-                    <p className="text-xs text-slate-400 mb-1">Detected reading</p>
-                    <p className="text-xl font-mono font-bold text-cyan-400 mb-3">
-                      {scannedPreviewValue}
-                    </p>
+                  <div className="bg-slate-800/80 border border-cyan-500/40 rounded-xl p-3.5 space-y-3">
+                    <p className="text-xs text-slate-400">AI Detected Reading: <span className="text-cyan-400 font-mono font-bold text-lg">{scannedPreviewValue}</span></p>
                     <div className="flex gap-2">
                       <button
                         type="button"
                         onClick={confirmScannedValue}
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-xs font-semibold"
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-xs font-semibold transition"
                       >
-                        Accept ✓
+                        Accept AI Value ✓
                       </button>
                       <button
                         type="button"
                         onClick={() => setScannedPreviewValue(null)}
-                        className="flex-1 bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-xs font-semibold"
+                        className="flex-1 bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-xs font-semibold transition"
                       >
                         Dismiss
                       </button>
@@ -569,9 +507,7 @@ export default function SupervisorTerminal() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
-              Closing Meter (L)
-            </label>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">Closing Meter (L)</label>
             <input
               type="number"
               value={closingMeter}
@@ -587,9 +523,7 @@ export default function SupervisorTerminal() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                Cash Collected (GHS)
-              </label>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Cash Collected (GHS)</label>
               <input
                 type="number"
                 step="0.01"
@@ -601,9 +535,7 @@ export default function SupervisorTerminal() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                MoMo Collected (GHS)
-              </label>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">MoMo Collected (GHS)</label>
               <input
                 type="number"
                 step="0.01"
@@ -617,9 +549,7 @@ export default function SupervisorTerminal() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
-              Shift Expenses (GHS)
-            </label>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">Shift Expenses (GHS)</label>
             <input
               type="number"
               step="0.01"
