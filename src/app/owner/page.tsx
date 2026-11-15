@@ -72,7 +72,8 @@ export default function OwnerDashboard() {
             <table className="w-full text-left border-collapse text-xs md:text-sm">
               <thead>
                 <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[11px]">
-                  <th className="p-4">Date / Time</th>
+                  <th className="p-4">Opening Time</th>
+                  <th className="p-4">Closing Time</th>
                   <th className="p-4">Supervisor</th>
                   <th className="p-4">Status</th>
                   <th className="p-4">Opening (L)</th>
@@ -87,13 +88,13 @@ export default function OwnerDashboard() {
               <tbody className="divide-y divide-slate-800/60">
                 {loading ? (
                   <tr>
-                    <td colSpan={10} className="p-8 text-center text-slate-500 animate-pulse">
+                    <td colSpan={11} className="p-8 text-center text-slate-500 animate-pulse">
                       Loading shift records...
                     </td>
                   </tr>
                 ) : shifts.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="p-8 text-center text-slate-500">
+                    <td colSpan={11} className="p-8 text-center text-slate-500">
                       No shift records found yet.
                     </td>
                   </tr>
@@ -105,11 +106,21 @@ export default function OwnerDashboard() {
 
                     return (
                       <tr key={shift.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="p-4 text-slate-300">
+                        <td className="p-4 text-slate-300 font-mono text-xs">
                           {new Date(shift.created_at).toLocaleString([], {
                             dateStyle: "short",
                             timeStyle: "short",
                           })}
+                        </td>
+                        <td className="p-4 text-slate-300 font-mono text-xs">
+                          {shift.closed_at ? (
+                            new Date(shift.closed_at).toLocaleString([], {
+                              dateStyle: "short",
+                              timeStyle: "short",
+                            })
+                          ) : (
+                            <span className="text-amber-400/80 italic">Shift Open</span>
+                          )}
                         </td>
                         <td className="p-4 font-semibold text-white">{shift.attendant_name || "—"}</td>
                         <td className="p-4">
@@ -172,7 +183,7 @@ export default function OwnerDashboard() {
 
         {/* PHOTO AUDIT MODAL */}
         {selectedShift && (
-          <div className="fixed inset-0 bg-black/9ountains z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
             <div className="max-w-3xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center border-b border-slate-800 pb-4">
                 <div>
@@ -207,8 +218,8 @@ export default function OwnerDashboard() {
                   ) : (
                     <p className="text-xs text-slate-500 py-12 text-center">No opening photo uploaded</p>
                   )}
-                  <p className="text-[11px] text-slate-400">
-                    Captured: {new Date(selectedShift.created_at).toLocaleString()}
+                  <p className="text-[11px] text-slate-400 font-mono">
+                    Opened at: {new Date(selectedShift.created_at).toLocaleString()}
                   </p>
                 </div>
 
@@ -229,8 +240,8 @@ export default function OwnerDashboard() {
                   ) : (
                     <p className="text-xs text-slate-500 py-12 text-center">Shift still open / No closing photo yet</p>
                   )}
-                  <p className="text-[11px] text-slate-400">
-                    Closed: {selectedShift.closed_at ? new Date(selectedShift.closed_at).toLocaleString() : "Pending"}
+                  <p className="text-[11px] text-slate-400 font-mono">
+                    Closed at: {selectedShift.closed_at ? new Date(selectedShift.closed_at).toLocaleString() : "Pending"}
                   </p>
                 </div>
               </div>
