@@ -20,6 +20,7 @@ export default function SupervisorTerminal() {
   const [closingImage, setClosingImage] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [message, setMessage] = useState("");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -90,7 +91,50 @@ export default function SupervisorTerminal() {
     startCamera(nextState);
   };
 
-  const capturePhoto = () => {
+  const runOCRScan = async (dataUrl: string) => {
+    try {
+      setIsScanning(true);
+      setMessage("Scanning meter digits from photo...");
+
+      // Dynamically load Tesseract.js from CDN if not already loaded
+      if (!(window as any).Tesseract) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+
+      const Tesseract = (window as any).Tesseract;
+      const result = await Tesseract.recognize(dataUrl, "eng", {
+        logger: (m: any) => console.log(m),
+      });
+
+      const extractedText = result.data.text || "";
+      // Extract numbers only from OCR result
+      const numbersOnly = extractedText.replace(/[^0-9]/g, "");
+
+      if (numbersOnly.length > 0) {
+        if (shiftStage === "OPENING") {
+          setOpeningMeter(numbersOnly);
+        } else {
+          setClosingMeter(numbersOnly);
+        }
+        setMessage(`✓ OCR Scanned successfully: ${numbersOnly}`);
+      } else {
+        setMessage("⚠️ Could not clearly read numbers. Please enter meter value manually.");
+      }
+    } catch (err) {
+      console.error("OCR Error:", err);
+      setMessage("OCR scan failed. Please enter meter value manually.");
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const capturePhoto = async () => {
     if (!videoRef.current) return;
     const canvas = document.createElement("canvas");
     canvas.width = videoRef.current.videoWidth || 640;
@@ -114,6 +158,9 @@ export default function SupervisorTerminal() {
         videoRef.current.srcObject = null;
       }
       setCameraActive(false);
+
+      // Run OCR on captured snapshot
+      await runOCRScan(dataUrl);
     }
   };
 
@@ -203,7 +250,7 @@ export default function SupervisorTerminal() {
       {shiftStage === "OPENING" ? (
         <form onSubmit={handleOpenShiftSubmit} className="space-y-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
-            <label className="block text-xs text-slate-400 mb-2">Opening Meter Live Camera Proof</label>
+            <label className="block text-xs text-slate-400 mb-2">Opening Meter Live Camera Proof & OCR Scanner</label>
             
             {!cameraActive && !openingImage && (
               <button
@@ -230,16 +277,17 @@ export default function SupervisorTerminal() {
                 <button
                   type="button"
                   onClick={capturePhoto}
+                  disabled={isScanning}
                   className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 font-semibold rounded-lg text-sm shadow"
                 >
-                  Snap Opening Meter Photo 📸
+                  {isScanning ? "Scanning Numbers (OCR)..." : "Snap & Read Meter Photo 📸"}
                 </button>
               </div>
             )}
 
             {openingImage && (
               <div className="mt-2 text-center">
-                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Opening photo captured successfully.</p>
+                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Opening photo captured & scanned.</p>
                 <img src={openingImage} alt="Opening Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
                 <button
                   type="button"
@@ -281,7 +329,7 @@ export default function SupervisorTerminal() {
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">
-                Opening Meter (L) {isLoadingPrevious && <span className="text-[10px] text-cyan-400">(Loading previous...)</span>}
+                Opening Meter (L) {isLoadingPrevious && <span className="text-[10px] text-cyan-400">(Loading...)</span>}
               </label>
               <input
                 type="number"
@@ -304,7 +352,7 @@ export default function SupervisorTerminal() {
       ) : (
         <form onSubmit={handleCloseShiftSubmit} className="space-y-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
-            <label className="block text-xs text-slate-400 mb-2">Closing Meter Live Camera Proof</label>
+            <label className="block text-xs text-slate-400 mb-2">Closing Meter Live Camera Proof & OCR Scanner</label>
             
             {!cameraActive && !closingImage && (
               <button
@@ -331,16 +379,17 @@ export default function SupervisorTerminal() {
                 <button
                   type="button"
                   onClick={capturePhoto}
+                  disabled={isScanning}
                   className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 font-semibold rounded-lg text-sm shadow"
                 >
-                  Snap Closing Meter Photo 📸
+                  {isScanning ? "Scanning Numbers (OCR)..." : "Snap & Read Meter Photo 📸"}
                 </button>
               </div>
             )}
 
             {closingImage && (
               <div className="mt-2 text-center">
-                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Closing photo captured successfully.</p>
+                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Closing photo captured & scanned.</p>
                 <img src={closingImage} alt="Closing Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
                 <button
                   type="button"
@@ -382,7 +431,7 @@ export default function SupervisorTerminal() {
               />
             </div>
             <div>
-              <label className="path block text-xs text-slate-400 mb-1">Mobile Money / MoMo (GHS)</label>
+              <label className="block text-xs text-slate-400 mb-1">Mobile Money / MoMo (GHS)</label>
               <input
                 type="number"
                 step="0.01"
