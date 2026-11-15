@@ -201,6 +201,7 @@ export default function SupervisorTerminal() {
       const price = parseFloat(fuelPrice);
       const cash = parseFloat(cashCollected || "0");
       const momo = parseFloat(momoCollected || "0");
+      const exp = parseFloat(expenses || "0");
 
       if (closeM <= openM) {
         alert("Closing meter must be greater than opening meter (Meter Continuity check).");
@@ -208,7 +209,7 @@ export default function SupervisorTerminal() {
         return;
       }
 
-      // Payload matching supervisor_name and core metrics
+      // Payload now explicitly saving supervisor_name and proof_image
       const { error } = await supabase.from("shifts").insert([
         {
           supervisor_name: supervisorName,
@@ -217,6 +218,7 @@ export default function SupervisorTerminal() {
           closing_meter: closeM,
           cash_collected: cash,
           momo_collected: momo,
+          proof_image: closingImage,
         },
       ]);
 
@@ -328,7 +330,7 @@ export default function SupervisorTerminal() {
           </div>
 
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Supervisor / Operator Name</label>
+            <label className="block text-xs text-slate-400 mb-1">Supervisor Name</label>
             <input
               type="text"
               value={supervisorName}
