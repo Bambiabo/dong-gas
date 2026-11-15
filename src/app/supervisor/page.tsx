@@ -27,7 +27,7 @@ export default function SupervisorTerminal() {
   const [cameraActive, setCameraActive] = useState(false);
   const [useRearCamera, setUseRearCamera] = useState(true);
 
-  // Fetch previous closing meter automatically for the continuation feature
+  // Fetch previous closing meter automatically for the continuation feature with fallback baseline
   useEffect(() => {
     async function fetchPreviousClosing() {
       try {
@@ -38,13 +38,17 @@ export default function SupervisorTerminal() {
           .order("created_at", { ascending: false })
           .limit(1);
 
-        if (!error && data && data.length > 0 && data[0].closing_meter) {
+        if (!error && data && data.length > 0 && data[0].closing_meter != null) {
           const priorClose = data[0].closing_meter.toString();
           setOpeningMeter(priorClose);
           setMessage(`✓ Auto-loaded prior closing meter (${priorClose} L) for continuation.`);
+        } else {
+          setOpeningMeter("1000");
+          setMessage("ℹ️ No prior shifts found. Initialized baseline opening meter at 1000 L.");
         }
       } catch (err) {
         console.error("Could not fetch previous meter:", err);
+        setOpeningMeter("1000");
       } finally {
         setIsLoadingPrevious(false);
       }
@@ -93,24 +97,22 @@ export default function SupervisorTerminal() {
     startCamera(nextState);
   };
 
-  // High-accuracy OCR pipeline with Canvas preprocessing (grayscale & contrast scaling)
+  // High-accuracy OCR pipeline with Canvas preprocessing & numeric whitelisting
   const runAdvancedOCR = async (dataUrl: string) => {
     try {
       setIsScanning(true);
       setMessage("Processing image via computer vision OCR...");
 
-      // Preprocess image on canvas to enhance contrast for meter digits
       const processedDataUrl = await new Promise<string>((resolve) => {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement("canvas");
           const ctx = canvas.getContext("2d");
-          canvas.width = img.width * 2; // Upscale for sharper OCR recognition
+          canvas.width = img.width * 2;
           canvas.height = img.height * 2;
           if (ctx) {
             ctx.imageSmoothingEnabled = false;
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            // Optional contrast boost filter
             resolve(canvas.toDataURL("image/jpeg", 1.0));
           } else {
             resolve(dataUrl);
@@ -132,7 +134,6 @@ export default function SupervisorTerminal() {
       const Tesseract = (window as any).Tesseract;
       const worker = await Tesseract.createWorker("eng");
       
-      // Configure Tesseract whitelist for numeric meter readings only
       await worker.setParameters({
         tessedit_char_whitelist: '0123456789',
       });
@@ -229,7 +230,6 @@ export default function SupervisorTerminal() {
       const momo = parseFloat(momoCollected || "0");
       const exp = parseFloat(expenses || "0");
 
-      // Strict validation: Closing meter must exceed opening meter
       if (closeM <= openM) {
         alert(`Validation Error: Closing meter (${closeM}) must be strictly greater than opening meter (${openM}).`);
         setIsSubmitting(false);
@@ -261,14 +261,13 @@ export default function SupervisorTerminal() {
       setOpeningImage(null);
       setClosingImage(null);
 
-      // Re-fetch the new continuation opening meter for the next shift
       const { data } = await supabase
         .from("shifts")
         .select("closing_meter")
         .order("created_at", { ascending: false })
         .limit(1);
 
-      if (data && data.length > 0 && data[0].closing_meter) {
+      if (data && data.length > 0 && data[0].closing_meter != null) {
         setOpeningMeter(data[0].closing_meter.toString());
       }
     } catch (err: any) {
