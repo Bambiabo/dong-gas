@@ -201,7 +201,6 @@ export default function SupervisorTerminal() {
       const price = parseFloat(fuelPrice);
       const cash = parseFloat(cashCollected || "0");
       const momo = parseFloat(momoCollected || "0");
-      const exp = parseFloat(expenses || "0");
 
       if (closeM <= openM) {
         alert("Closing meter must be greater than opening meter (Meter Continuity check).");
@@ -209,10 +208,9 @@ export default function SupervisorTerminal() {
         return;
       }
 
-      // Insert matching exact table schema columns
+      // Safe payload matching verified table columns
       const { error } = await supabase.from("shifts").insert([
         {
-          supervisor_name: supervisorName,
           fuel_price: price,
           opening_meter: openM,
           closing_meter: closeM,
