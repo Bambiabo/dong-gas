@@ -12,6 +12,7 @@ export default function SupervisorPage() {
   const [attendantName, setAttendantName] = useState("");
   const [fuelPrice, setFuelPrice] = useState("10.40");
   const [openingMeter, setOpeningMeter] = useState("");
+  const [isMeterLocked, setIsMeterLocked] = useState(false);
   const [closingMeter, setClosingMeter] = useState("");
   const [expenses, setExpenses] = useState("0");
   const [cashDeclared, setCashDeclared] = useState("");
@@ -42,24 +43,47 @@ export default function SupervisorPage() {
       });
   }, []);
 
-  // Check if there is already an open shift in Supabase
-  useEffect(() => {
-    async function checkActiveShift() {
-      const { data, error } = await supabase
-        .from("shifts")
-        .select("*")
-        .eq("status", "open")
-        .order("created_at", { ascending: false })
-        .limit(1);
+  // Load either an active open shift OR the last closed shift's closing meter
+  const syncShiftState = async () => {
+    // 1. Check for an active open shift
+    const { data: openData, error: openErr } = await supabase
+      .from("shifts")
+      .select("*")
+      .eq("status", "open")
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-      if (!error && data && data.length > 0) {
-        setActiveShift(data[0]);
-        setAttendantName(data[0].attendant_name || "");
-        setFuelPrice(data[0].fuel_price?.toString() || "10.40");
-        setOpeningMeter(data[0].opening_meter?.toString() || "");
-      }
+    if (!openErr && openData && openData.length > 0) {
+      setActiveShift(openData[0]);
+      setAttendantName(openData[0].attendant_name || "");
+      setFuelPrice(openData[0].fuel_price?.toString() || "10.40");
+      setOpeningMeter(openData[0].opening_meter?.toString() || "");
+      setIsMeterLocked(true);
+      return;
     }
-    checkActiveShift();
+
+    // 2. Otherwise, check the most recently closed shift to enforce continuity
+    const { data: closedData, error: closedErr } = await supabase
+      .from("shifts")
+      .select("closing_meter, fuel_price")
+      .eq("status", "closed")
+      .order("closed_at", { ascending: false })
+      .limit(1);
+
+    if (!closedErr && closedData && closedData.length > 0 && closedData[0].closing_meter != null) {
+      setOpeningMeter(closedData[0].closing_meter.toString());
+      if (closedData[0].fuel_price) {
+        setFuelPrice(closedData[0].fuel_price.toString());
+      }
+      setIsMeterLocked(true);
+    } else {
+      // Very first shift in the system — allow manual entry
+      setIsMeterLocked(false);
+    }
+  };
+
+  useEffect(() => {
+    syncShiftState();
   }, []);
 
   const capturePhoto = (isOpening: boolean) => {
@@ -103,7 +127,7 @@ export default function SupervisorPage() {
   };
 
   // -------------------------------------------------------------
-  // PHASE 1: START SHIFT
+  // PHASE 1: START SHIFT (WITH CONTINUITY CHECK)
   // -------------------------------------------------------------
   const handleStartShift = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,6 +149,24 @@ export default function SupervisorPage() {
 
     setLoading(true);
     try {
+      // Server-side continuity verification right before insert
+      const { data: lastClosed } = await supabase
+        .from("shifts")
+        .select("closing_meter")
+        .eq("status", "closed")
+        .order("closed_at", { ascending: false })
+        .limit(1);
+
+      let verifiedOpening = parseFloat(openingMeter);
+      if (lastClosed && lastClosed.length > 0 && lastClosed[0].closing_meter != null) {
+        const expectedOpening = parseFloat(lastClosed[0].closing_meter);
+        if (verifiedOpening !== expectedOpening) {
+          setOpeningMeter(expectedOpening.toString());
+          setIsMeterLocked(true);
+          throw new Error(`Meter continuity mismatch: Opening meter must match previous closing meter (${expectedOpening} L).`);
+        }
+      }
+
       const photoUrl = await uploadBase64Image(openingPhoto, "opening");
 
       const { data, error } = await supabase
@@ -133,7 +175,7 @@ export default function SupervisorPage() {
           {
             attendant_name: attendantName,
             fuel_price: parseFloat(fuelPrice) || 0,
-            opening_meter: parseFloat(openingMeter),
+            opening_meter: verifiedOpening,
             opening_photo_url: photoUrl,
             status: "open",
           },
@@ -144,7 +186,8 @@ export default function SupervisorPage() {
       if (error) throw error;
 
       setActiveShift(data);
-      setSuccessMsg("Shift started successfully! Opening proof logged.");
+      setOpeningPhoto(null);
+      setSuccessMsg("Shift started successfully! Opening proof and meter continuity locked.");
     } catch (err: any) {
       setErrorMsg(err.message || "Error starting shift.");
     } finally {
@@ -191,8 +234,6 @@ export default function SupervisorPage() {
       const declaredCash = parseFloat(cashDeclared);
       const shiftExpenses = parseFloat(expenses) || 0;
 
-      // Formula: Expected Net Cash = Total Sales - Expenses
-      // Variance = Cash Declared - Expected Net Cash
       const expectedNetCash = totalSales - shiftExpenses;
       const variance = declaredCash - expectedNetCash;
 
@@ -219,6 +260,10 @@ export default function SupervisorPage() {
       setCashDeclared("");
       setExpenses("0");
       setClosingPhoto(null);
+
+      // Immediately carry this closing meter forward to the next shift's opening meter
+      setOpeningMeter(cMeter.toString());
+      setIsMeterLocked(true);
     } catch (err: any) {
       setErrorMsg(err.message || "Error closing shift.");
     } finally {
@@ -250,7 +295,7 @@ export default function SupervisorPage() {
           </div>
         )}
 
-        {/* Hidden Video Canvas for Snapping Photos */}
+        {/* Live Camera Feed */}
         <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video flex items-center justify-center">
           <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
           <canvas ref={canvasRef} className="hidden" />
@@ -291,18 +336,34 @@ export default function SupervisorPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">Opening Meter (L)</label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-xs font-semibold text-slate-400">Opening Meter (L)</label>
+                  {isMeterLocked && (
+                    <span className="text-[10px] text-emerald-400 font-mono uppercase">🔒 Synced</span>
+                  )}
+                </div>
                 <input
                   type="number"
                   step="0.01"
                   placeholder="e.g. 6552678"
                   value={openingMeter}
-                  onChange={(e) => setOpeningMeter(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-sky-500"
+                  readOnly={isMeterLocked}
+                  onChange={(e) => !isMeterLocked && setOpeningMeter(e.target.value)}
+                  className={`w-full bg-slate-950 border rounded-xl px-4 py-3 font-mono text-sm focus:outline-none ${
+                    isMeterLocked
+                      ? "border-emerald-900/60 text-emerald-400 cursor-not-allowed"
+                      : "border-slate-800 text-white focus:border-sky-500"
+                  }`}
                   required
                 />
               </div>
             </div>
+
+            {isMeterLocked && (
+              <p className="text-[11px] text-slate-400">
+                Opening meter is automatically locked to the previous shift&apos;s closing reading to prevent gaps.
+              </p>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-slate-400 mb-1">Opening Meter Photo (Live Only)</label>
