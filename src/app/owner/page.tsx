@@ -1,148 +1,136 @@
-'use client';
-import { useState, useEffect } from 'react';
+"use client";
 
-interface ShiftSummary {
+import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+interface ShiftRecord {
   id: string;
-  station_name: string;
-  shift_type: string;
-  shift_date: string;
-  total_expected: number;
-  total_actual: number;
-  variance: number;
-  is_flagged: boolean;
-  liters_pms: number;
-  liters_ago: number;
-  liters_lpg: number;
-  closed_by: string;
+  created_at: string;
+  attendant_name?: string;
+  opening_meter?: number;
+  closing_meter?: number;
+  liters_sold?: number;
+  total_sales?: number;
+  cash_submitted?: number;
+  variance?: number;
+  meter_photo_url?: string;
 }
 
 export default function OwnerDashboard() {
-  const [shifts, setShifts] = useState<ShiftSummary[]>([]);
-  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [shifts, setShifts] = useState<ShiftRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
   useEffect(() => {
-    // Replace with real fetch from /api/owner/dashboard
-    // Demo data for Accra / Kumasi
-    setShifts([
-      {
-        id: '1',
-        station_name: 'Dong Gas East Legon',
-        shift_type: 'Morning',
-        shift_date: '2026-11-12',
-        total_expected: 18450.75,
-        total_actual: 18320.00,
-        variance: 130.75,
-        is_flagged: true,
-        liters_pms: 980.5,
-        liters_ago: 420.0,
-        liters_lpg: 85.0,
-        closed_by: 'Kofi Boateng',
-      },
-      {
-        id: '2',
-        station_name: 'Dong Gas Kumasi Central',
-        shift_type: 'Night',
-        shift_date: '2026-11-11',
-        total_expected: 22100.00,
-        total_actual: 22115.50,
-        variance: -15.50,
-        is_flagged: false,
-        liters_pms: 1120.0,
-        liters_ago: 510.0,
-        liters_lpg: 120.0,
-        closed_by: 'Ama Serwaa',
-      },
-    ]);
-    setLoading(false);
-  }, []);
+    async function fetchShifts() {
+      const { data, error } = await supabase
+        .from("shifts")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-  const totalRevenue = shifts.reduce((s, x) => s + x.total_actual, 0);
-  const totalLiters = shifts.reduce((s, x) => s + x.liters_pms + x.liters_ago + x.liters_lpg, 0);
+      if (!error && data) {
+        setShifts(data);
+      }
+      setLoading(false);
+    }
+
+    fetchShifts();
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-amber-400">Dong Gas Control Tower</h1>
-        <p className="text-slate-400">Owner Executive View • Ghana</p>
-      </header>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-slate-900 rounded-2xl p-5">
-          <div className="text-slate-400 text-sm">Today’s Revenue</div>
-          <div className="text-2xl font-bold text-green-400">GH₵{totalRevenue.toLocaleString('en-GH', { minimumFractionDigits: 2 })}</div>
-        </div>
-        <div className="bg-slate-900 rounded-2xl p-5">
-          <div className="text-slate-400 text-sm">Total Liters</div>
-          <div className="text-2xl font-bold">{totalLiters.toLocaleString()} L</div>
-        </div>
-        <div className="bg-slate-900 rounded-2xl p-5">
-          <div className="text-slate-400 text-sm">PMS / AGO / LPG</div>
-          <div className="text-lg font-semibold">
-            {shifts.reduce((s,x)=>s+x.liters_pms,0).toFixed(0)} / {shifts.reduce((s,x)=>s+x.liters_ago,0).toFixed(0)} / {shifts.reduce((s,x)=>s+x.liters_lpg,0).toFixed(0)}
+      <div className="max-w-6xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold">Dong Gas — Owner Dashboard</h1>
+            <p className="text-slate-400 text-sm">Shift Closings & Totalizer Audit</p>
           </div>
         </div>
-        <div className="bg-slate-900 rounded-2xl p-5">
-          <div className="text-slate-400 text-sm">Flagged Shifts</div>
-          <div className="text-2xl font-bold text-red-400">{shifts.filter(s => s.is_flagged).length}</div>
-        </div>
-      </div>
 
-      {/* Shift Table */}
-      <div className="bg-slate-900 rounded-2xl overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-slate-800 text-slate-300 text-sm">
-            <tr>
-              <th className="p-4">Station / Shift</th>
-              <th className="p-4">Expected</th>
-              <th className="p-4">Actual</th>
-              <th className="p-4">Variance</th>
-              <th className="p-4">Status</th>
-              <th className="p-4">Photo Audit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shifts.map(s => (
-              <tr key={s.id} className="border-t border-slate-800">
-                <td className="p-4">
-                  <div className="font-medium">{s.station_name}</div>
-                  <div className="text-sm text-slate-400">{s.shift_type} • {s.shift_date}</div>
-                  <div className="text-xs text-slate-500">by {s.closed_by}</div>
-                </td>
-                <td className="p-4 font-mono">GH₵{s.total_expected.toFixed(2)}</td>
-                <td className="p-4 font-mono">GH₵{s.total_actual.toFixed(2)}</td>
-                <td className={`p-4 font-mono font-bold ${s.variance > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                  {s.variance > 0 ? '+' : ''}{s.variance.toFixed(2)}
-                </td>
-                <td className="p-4">
-                  {s.is_flagged ? (
-                    <span className="px-2 py-1 bg-red-900 text-red-300 rounded text-xs">FLAGGED</span>
-                  ) : (
-                    <span className="px-2 py-1 bg-green-900 text-green-300 rounded text-xs">CLEAN</span>
-                  )}
-                </td>
-                <td className="p-4">
-                  <button
-                    onClick={() => setSelectedPhoto('https://placehold.co/600x400?text=Totalizer+Photo')}
-                    className="text-amber-400 underline text-sm"
-                  >
-                    View Photos
-                  </button>
-                </td>
+        <div className="bg-slate-900 rounded-2xl overflow-x-auto border border-slate-800">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                <th className="p-4">Date</th>
+                <th className="p-4">Attendant</th>
+                <th className="p-4">Opening</th>
+                <th className="p-4">Closing</th>
+                <th className="p-4">Total Sales (GHS)</th>
+                <th className="p-4">Variance</th>
+                <th className="p-4">Meter Proof</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-800 text-sm">
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="p-6 text-center text-slate-400">
+                    Loading shift records...
+                  </td>
+                </tr>
+              ) : shifts.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-6 text-center text-slate-400">
+                    No shift records found yet.
+                  </td>
+                </tr>
+              ) : (
+                shifts.map((shift) => (
+                  <tr key={shift.id} className="hover:bg-slate-800/50">
+                    <td className="p-4">
+                      {new Date(shift.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="p-4 font-medium">
+                      {shift.attendant_name || "Attendant"}
+                    </td>
+                    <td className="p-4">{shift.opening_meter ?? "-"}</td>
+                    <td className="p-4">{shift.closing_meter ?? "-"}</td>
+                    <td className="p-4 font-semibold text-emerald-400">
+                      {shift.total_sales?.toFixed(2) ?? "0.00"}
+                    </td>
+                    <td className="p-4">
+                      {shift.variance !== undefined ? shift.variance.toFixed(2) : "0.00"}
+                    </td>
+                    <td className="p-4">
+                      {shift.meter_photo_url ? (
+                        <button
+                          onClick={() => setSelectedPhoto(shift.meter_photo_url!)}
+                          className="text-sky-400 hover:underline font-medium"
+                        >
+                          View Photo
+                        </button>
+                      ) : (
+                        <span className="text-slate-500">No photo</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Photo Modal */}
       {selectedPhoto && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setSelectedPhoto(null)}>
-          <div className="bg-slate-900 rounded-2xl max-w-2xl w-full p-4" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 rounded-2xl max-w-2xl w-full p-4 border border-slate-800">
             <h3 className="text-lg font-bold mb-3">Meter Photo Audit</h3>
-            <img src={selectedPhoto} alt="Totalizer proof" className="w-full rounded-xl" />
-            <button onClick={() => setSelectedPhoto(null)} className="mt-4 w-full py-3 bg-slate-700 rounded-xl">Close</button>
+            <img
+              src={selectedPhoto}
+              alt="Totalizer proof"
+              className="w-full rounded-lg max-h-[70vh] object-contain"
+            />
+            <button
+              onClick={() => setSelectedPhoto(null)}
+              className="mt-4 w-full bg-slate-800 hover:bg-slate-700 py-2.5 rounded-xl text-center font-medium transition-colors"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
