@@ -176,11 +176,11 @@ export default function SupervisorTerminal() {
         setScannedPreviewValue(digits);
         showMessage("success", "OCR successful — please verify the reading.");
       } else {
-        showMessage("error", "Could not reliably extract digits. Enter manually.");
+        showMessage("error", "Could not reliably extract digits.");
       }
     } catch (err) {
       console.error(err);
-      showMessage("error", "OCR failed. Please enter the meter value manually.");
+      showMessage("error", "OCR failed.");
     } finally {
       setIsScanning(false);
     }
@@ -210,11 +210,10 @@ export default function SupervisorTerminal() {
 
   const confirmScannedValue = () => {
     if (!scannedPreviewValue) return;
-    if (shiftStage === "OPENING") {
-      setOpeningMeter(scannedPreviewValue);
-    } else {
+    if (shiftStage === "CLOSING") {
       setClosingMeter(scannedPreviewValue);
     }
+    // Note: openingMeter is locked/non-editable by design, so OCR won't overwrite it automatically unless desired, but closingMeter accepts it.
     setScannedPreviewValue(null);
     showMessage("success", "Meter value applied.");
   };
@@ -408,22 +407,6 @@ export default function SupervisorTerminal() {
                     <p className="text-xl font-mono font-bold text-cyan-400 mb-3">
                       {scannedPreviewValue}
                     </p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={confirmScannedValue}
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-xs font-semibold"
-                      >
-                        Accept ✓
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setScannedPreviewValue(null)}
-                        className="flex-1 bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-xs font-semibold"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
                   </div>
                 )}
 
@@ -442,7 +425,7 @@ export default function SupervisorTerminal() {
             )}
           </div>
 
-          {/* Price + Opening Meter */}
+          {/* Price + Opening Meter (Locked / ReadOnly) */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">
@@ -475,13 +458,11 @@ export default function SupervisorTerminal() {
               <input
                 type="number"
                 value={openingMeter}
-                onChange={(e) => setOpeningMeter(e.target.value)}
-                required
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                placeholder="Auto-synced"
+                readOnly
+                className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-300 cursor-not-allowed focus:outline-none"
               />
               <p className="text-[10px] text-slate-500 mt-1">
-                Auto-carried from previous closing
+                Auto-carried & locked from previous closing
               </p>
             </div>
           </div>
