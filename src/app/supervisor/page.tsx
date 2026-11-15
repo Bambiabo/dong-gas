@@ -209,7 +209,7 @@ export default function SupervisorTerminal() {
         return;
       }
 
-      // Safe payload matching standard table columns
+      // Insert matching exact table schema columns
       const { error } = await supabase.from("shifts").insert([
         {
           supervisor_name: supervisorName,
@@ -218,7 +218,6 @@ export default function SupervisorTerminal() {
           closing_meter: closeM,
           cash_collected: cash,
           momo_collected: momo,
-          proof_image: closingImage,
         },
       ]);
 
