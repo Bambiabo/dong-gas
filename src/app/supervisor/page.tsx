@@ -27,33 +27,36 @@ export default function SupervisorTerminal() {
   const [cameraActive, setCameraActive] = useState(false);
   const [useRearCamera, setUseRearCamera] = useState(true);
 
-  // Fetch previous closing meter automatically for the continuation feature with fallback baseline
-  useEffect(() => {
-    async function fetchPreviousClosing() {
-      try {
-        setIsLoadingPrevious(true);
-        const { data, error } = await supabase
-          .from("shifts")
-          .select("closing_meter")
-          .order("created_at", { ascending: false })
-          .limit(1);
+  // Function to pull the continuation meter from Supabase
+  const fetchPreviousClosingMeter = async () => {
+    try {
+      setIsLoadingPrevious(true);
+      setMessage("Syncing prior shift meter...");
+      const { data, error } = await supabase
+        .from("shifts")
+        .select("closing_meter")
+        .order("created_at", { ascending: false })
+        .limit(1);
 
-        if (!error && data && data.length > 0 && data[0].closing_meter != null) {
-          const priorClose = data[0].closing_meter.toString();
-          setOpeningMeter(priorClose);
-          setMessage(`✓ Auto-loaded prior closing meter (${priorClose} L) for continuation.`);
-        } else {
-          setOpeningMeter("1000");
-          setMessage("ℹ️ No prior shifts found. Initialized baseline opening meter at 1000 L.");
-        }
-      } catch (err) {
-        console.error("Could not fetch previous meter:", err);
+      if (!error && data && data.length > 0 && data[0].closing_meter != null) {
+        const priorClose = data[0].closing_meter.toString();
+        setOpeningMeter(priorClose);
+        setMessage(`✓ Auto-loaded prior closing meter (${priorClose} L).`);
+      } else {
         setOpeningMeter("1000");
-      } finally {
-        setIsLoadingPrevious(false);
+        setMessage("ℹ️ No prior shifts found. Set baseline to 1000 L.");
       }
+    } catch (err) {
+      console.error("Could not fetch previous meter:", err);
+      setOpeningMeter("1000");
+      setMessage("⚠️ Failed to sync prior meter. Defaulted to 1000 L.");
+    } finally {
+      setIsLoadingPrevious(false);
     }
-    fetchPreviousClosing();
+  };
+
+  useEffect(() => {
+    fetchPreviousClosingMeter();
   }, []);
 
   const startCamera = async (rear: boolean) => {
@@ -261,15 +264,8 @@ export default function SupervisorTerminal() {
       setOpeningImage(null);
       setClosingImage(null);
 
-      const { data } = await supabase
-        .from("shifts")
-        .select("closing_meter")
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (data && data.length > 0 && data[0].closing_meter != null) {
-        setOpeningMeter(data[0].closing_meter.toString());
-      }
+      // Re-fetch continuation meter for the next shift
+      await fetchPreviousClosingMeter();
     } catch (err: any) {
       console.error("Supabase insert error:", err);
       alert(`Error: ${err.message}`);
@@ -361,8 +357,24 @@ export default function SupervisorTerminal() {
               <input type="number" step="0.01" value={fuelPrice} onChange={(e) => setFuelPrice(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Opening Meter (L) {isLoadingPrevious && "(Auto-loading...)"}</label>
-              <input type="number" value={openingMeter} onChange={(e) => setOpeningMeter(e.target.value)} required className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" placeholder="Auto-synced from prior shift" />
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs text-slate-400">Opening Meter (L)</label>
+                <button 
+                  type="button" 
+                  onClick={fetchPreviousClosingMeter} 
+                  className="text-[10px] text-cyan-400 hover:underline"
+                >
+                  {isLoadingPrevious ? "Syncing..." : "🔄 Sync Prior Meter"}
+                </button>
+              </div>
+              <input 
+                type="number" 
+                value={openingMeter} 
+                onChange={(e) => setOpeningMeter(e.target.value)} 
+                required 
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-sm" 
+                placeholder="Auto-synced from prior shift" 
+              />
             </div>
           </div>
 
