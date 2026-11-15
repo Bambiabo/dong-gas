@@ -48,7 +48,7 @@ export default function OwnerDashboard() {
       .order("created_at", { ascending: false });
 
     if (!error && data) {
-      console.log("Fetched shifts data from Supabase:", data); // Debug log to check keys
+      console.log("Fetched shifts from Supabase:", data);
       setShifts(data);
     }
     setLoading(false);
@@ -158,9 +158,21 @@ export default function OwnerDashboard() {
                     })
                   : "N/A";
 
-                // Pull supervisor name across potential variations in table columns
-                const supName = shift.supervisor_name || shift.supervisor || shift.name || "Unknown Supervisor";
-                const proofUrl = shift.proof_image || shift.image || shift.photo;
+                // Exhaustive fallbacks for name and photo keys
+                const supName = 
+                  shift.supervisor_name || 
+                  shift.supervisor || 
+                  shift.name || 
+                  shift.operator || 
+                  shift.shift_operator || 
+                  "Shift Supervisor";
+
+                const proofUrl = 
+                  shift.proof_image || 
+                  shift.image || 
+                  shift.photo || 
+                  shift.proof || 
+                  null;
 
                 return (
                   <tr key={shift.id || shift.created_at} className="border-b border-slate-800 hover:bg-slate-850">
