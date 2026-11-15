@@ -20,36 +20,36 @@ export default function SupervisorTerminal() {
 
   const startCamera = async (rear: boolean) => {
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        alert("Camera API not supported on this browser. Please use the file upload option below.");
-        return;
-      }
-
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach((track) => track.stop());
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: rear ? { exact: "environment" } : "user" },
-      });
+      // Request strict environment (rear) camera or user (front) camera
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: rear ? { exact: "environment" } : "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        // Fallback if exact facingMode isn't supported by the mobile browser
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: rear ? "environment" : "user" }
+        });
+      }
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setCameraActive(true);
       }
     } catch (err) {
-      try {
-        const fallbackStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = fallbackStream;
-          setCameraActive(true);
-        }
-      } catch (fallbackErr) {
-        alert("Could not access camera hardware. Please use the file upload button below.");
-      }
+      alert("Unable to access live camera. Please ensure camera permissions are allowed in your browser settings.");
     }
   };
 
@@ -68,24 +68,20 @@ export default function SupervisorTerminal() {
     if (ctx) {
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
       setCapturedImage(canvas.toDataURL("image/jpeg"));
-    }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setCapturedImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      
+      // Stop the video stream tracks after snapping
+      const stream = videoRef.current.srcObject as MediaStream;
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      setCameraActive(false);
     }
   };
 
   const handleSubmitShift = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!capturedImage) {
-      alert("Live meter photo proof or image upload is required.");
+      alert("Live meter photo proof is required.");
       return;
     }
 
@@ -146,23 +142,23 @@ export default function SupervisorTerminal() {
       <h1 className="text-xl font-bold mb-1">Dong Gas — Shift Supervisor</h1>
       <p className="text-xs text-slate-400 mb-4">Secure Meter Reconciliation & Payment Logging</p>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 space-y-3">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
         {!cameraActive ? (
           <button
             type="button"
             onClick={() => startCamera(useRearCamera)}
-            className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-medium rounded-lg text-sm"
+            className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-semibold rounded-lg text-sm shadow"
           >
             Turn On Secure Camera Proof
           </button>
         ) : (
           <div>
-            <div className="relative mb-2">
-              <video ref={videoRef} autoPlay playsInline className="w-full rounded-lg" />
+            <div className="relative mb-3">
+              <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-lg bg-black" />
               <button
                 type="button"
                 onClick={toggleCameraFacing}
-                className="absolute top-2 right-2 bg-slate-900/80 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 shadow-md backdrop-blur-sm"
+                className="absolute top-2 right-2 bg-slate-950/90 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 shadow-md backdrop-blur-sm"
               >
                 Switch to {useRearCamera ? "Front (Selfie)" : "Rear (Meter)"} 🔄
               </button>
@@ -170,26 +166,25 @@ export default function SupervisorTerminal() {
             <button
               type="button"
               onClick={capturePhoto}
-              className="w-full py-2 bg-cyan-600 hover:bg-cyan-500 font-semibold rounded-lg text-sm"
+              className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 font-semibold rounded-lg text-sm shadow"
             >
-              Snap Meter Proof Photo
+              Snap Meter Proof Photo 📸
             </button>
           </div>
         )}
 
-        {/* Fallback File Upload for Desktop or Restricted Cameras */}
-        <div className="border-t border-slate-800 pt-3">
-          <label className="block text-xs text-slate-400 mb-1">Or Upload Meter Photo from Device</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleFileUpload}
-            className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-cyan-400 hover:file:bg-slate-700"
-          />
-        </div>
-
         {capturedImage && (
-          <p className="text-xs text-emerald-400 mt-1 font-medium">✓ Photo proof loaded successfully.</p>
+          <div className="mt-3 text-center">
+            <p className="text-xs text-emerald-400 font-medium mb-2">✓ Live meter photo proof captured successfully.</p>
+            <img src={capturedImage} alt="Meter Proof" className="w-32 h-32 object-cover mx-auto rounded-lg border border-slate-700" />
+            <button
+              type="button"
+              onClick={() => startCamera(useRearCamera)}
+              className="text-xs text-cyan-400 underline mt-2 block mx-auto"
+            >
+              Retake Photo
+            </button>
+          </div>
         )}
       </div>
 
