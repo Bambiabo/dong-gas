@@ -197,16 +197,22 @@ export default function SupervisorTerminal() {
         return;
       }
 
-      // Send both supervisor_name and supervisor to ensure compatibility
+      const finalProofImage = closingImage || openingImage;
+      const finalSupervisor = supervisorName.trim();
+
+      // Payload supporting both standard column naming conventions
       const payload = {
-        supervisor_name: supervisorName.trim(),
-        supervisor: supervisorName.trim(),
+        supervisor_name: finalSupervisor,
+        supervisor: finalSupervisor,
+        name: finalSupervisor,
         fuel_price: price,
         opening_meter: openM,
         closing_meter: closeM,
         cash_collected: cash,
         momo_collected: momo,
-        proof_image: closingImage,
+        expenses: exp,
+        proof_image: finalProofImage,
+        image: finalProofImage,
       };
 
       const { error } = await supabase.from("shifts").insert([payload]);
