@@ -21,6 +21,7 @@ export default function SupervisorTerminal() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [scannedPreviewValue, setScannedPreviewValue] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -60,6 +61,7 @@ export default function SupervisorTerminal() {
       }
 
       setCameraActive(true);
+      setScannedPreviewValue(null);
 
       let stream;
       try {
@@ -96,7 +98,6 @@ export default function SupervisorTerminal() {
       setIsScanning(true);
       setMessage("Scanning meter digits from photo...");
 
-      // Dynamically load Tesseract.js from CDN if not already loaded
       if (!(window as any).Tesseract) {
         await new Promise((resolve, reject) => {
           const script = document.createElement("script");
@@ -113,16 +114,11 @@ export default function SupervisorTerminal() {
       });
 
       const extractedText = result.data.text || "";
-      // Extract numbers only from OCR result
       const numbersOnly = extractedText.replace(/[^0-9]/g, "");
 
       if (numbersOnly.length > 0) {
-        if (shiftStage === "OPENING") {
-          setOpeningMeter(numbersOnly);
-        } else {
-          setClosingMeter(numbersOnly);
-        }
-        setMessage(`✓ OCR Scanned successfully: ${numbersOnly}`);
+        setScannedPreviewValue(numbersOnly);
+        setMessage("✓ OCR scan complete. Please verify or edit the number before applying.");
       } else {
         setMessage("⚠️ Could not clearly read numbers. Please enter meter value manually.");
       }
@@ -159,9 +155,19 @@ export default function SupervisorTerminal() {
       }
       setCameraActive(false);
 
-      // Run OCR on captured snapshot
       await runOCRScan(dataUrl);
     }
+  };
+
+  const confirmScannedValue = () => {
+    if (!scannedPreviewValue) return;
+    if (shiftStage === "OPENING") {
+      setOpeningMeter(scannedPreviewValue);
+    } else {
+      setClosingMeter(scannedPreviewValue);
+    }
+    setScannedPreviewValue(null);
+    setMessage("✓ Scanned meter value applied successfully.");
   };
 
   const handleOpenShiftSubmit = (e: React.FormEvent) => {
@@ -287,12 +293,37 @@ export default function SupervisorTerminal() {
 
             {openingImage && (
               <div className="mt-2 text-center">
-                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Opening photo captured & scanned.</p>
+                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Opening photo captured.</p>
                 <img src={openingImage} alt="Opening Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
+                
+                {scannedPreviewValue && (
+                  <div className="bg-slate-800 border border-cyan-500/50 p-3 rounded-lg mb-2">
+                    <p className="text-xs text-slate-300 mb-1">Scanned Meter Result:</p>
+                    <p className="text-lg font-mono font-bold text-cyan-400 mb-2">{scannedPreviewValue}</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={confirmScannedValue}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 py-1.5 rounded text-xs font-semibold"
+                      >
+                        Accept & Fill ✓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScannedPreviewValue(null)}
+                        className="flex-1 bg-slate-700 hover:bg-slate-600 py-1.5 rounded text-xs font-semibold"
+                      >
+                        Dismiss / Manual Edit
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
                     setOpeningImage(null);
+                    setScannedPreviewValue(null);
                     startCamera(useRearCamera);
                   }}
                   className="text-xs text-cyan-400 underline font-medium"
@@ -389,12 +420,37 @@ export default function SupervisorTerminal() {
 
             {closingImage && (
               <div className="mt-2 text-center">
-                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Closing photo captured & scanned.</p>
+                <p className="text-xs text-emerald-400 font-medium mb-2">✓ Closing photo captured.</p>
                 <img src={closingImage} alt="Closing Proof" className="w-28 h-28 object-cover mx-auto rounded-lg border border-slate-700 mb-2" />
+                
+                {scannedPreviewValue && (
+                  <div className="bg-slate-800 border border-cyan-500/50 p-3 rounded-lg mb-2">
+                    <p className="text-xs text-slate-300 mb-1">Scanned Meter Result:</p>
+                    <p className="text-lg font-mono font-bold text-cyan-400 mb-2">{scannedPreviewValue}</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={confirmScannedValue}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 py-1.5 rounded text-xs font-semibold"
+                      >
+                        Accept & Fill ✓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScannedPreviewValue(null)}
+                        className="flex-1 bg-slate-700 hover:bg-slate-600 py-1.5 rounded text-xs font-semibold"
+                      >
+                        Dismiss / Manual Edit
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
                     setClosingImage(null);
+                    setScannedPreviewValue(null);
                     startCamera(useRearCamera);
                   }}
                   className="text-xs text-cyan-400 underline font-medium"
