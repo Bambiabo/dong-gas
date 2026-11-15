@@ -16,17 +16,47 @@ export default function SupervisorTerminal() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
+  const [useRearCamera, setUseRearCamera] = useState(true); // Default to rear camera for meter proof
 
-  // Start live camera stream for proof
-  const startCamera = async () => {
+  // Start or switch live camera stream
+  const startCamera = async (rear: boolean) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Stop any existing stream first
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => track.stop());
+      }
+
+      const constraints = {
+        video: {
+          facingMode: rear ? { exact: "environment" } : "user",
+        },
+      };
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        // Fallback if exact environment constraint isn't supported on some mobile browsers
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: rear ? "environment" : "user" },
+        });
+      }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setCameraActive(true);
       }
     } catch (err) {
       alert("Unable to access camera. Please check permissions.");
+    }
+  };
+
+  const toggleCameraFacing = () => {
+    const nextState = !useRearCamera;
+    setUseRearCamera(nextState);
+    if (cameraActive) {
+      startCamera(nextState);
     }
   };
 
@@ -107,19 +137,29 @@ export default function SupervisorTerminal() {
       <h1 className="text-xl font-bold mb-1">Dong Gas — Shift Supervisor</h1>
       <p className="text-xs text-slate-400 mb-4">Secure Meter Reconciliation & Payment Logging</p>
 
-      {/* Live Camera View */}
+      {/* Live Camera View with Switcher */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
         {!cameraActive ? (
           <button
-            onClick={startCamera}
+            onClick={() => startCamera(useRearCamera)}
             className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-medium rounded-lg text-sm"
           >
             Turn On Secure Camera Proof
           </button>
         ) : (
           <div>
-            <video ref={videoRef} autoPlay playsInline className="w-full rounded-lg mb-2" />
+            <div className="relative mb-2">
+              <video ref={videoRef} autoPlay playsInline className="w-full rounded-lg" />
+              <button
+                type="button"
+                onClick={toggleCameraFacing}
+                className="absolute top-2 right-2 bg-slate-900/80 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 shadow-md backdrop-blur-sm"
+              >
+                Switch to {useRearCamera ? "Front (Selfie)" : "Rear (Meter)"} 🔄
+              </button>
+            </div>
             <button
+              type="button"
               onClick={capturePhoto}
               className="w-full py-2 bg-cyan-600 hover:bg-cyan-500 font-semibold rounded-lg text-sm"
             >
