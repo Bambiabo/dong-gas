@@ -209,25 +209,15 @@ export default function SupervisorTerminal() {
         return;
       }
 
-      const litersSold = closeM - openM;
-      const expectedRevenue = litersSold * price;
-      // Total accounting collected includes cash, MoMo, and operational expenses paid out from revenue
-      const totalCollected = cash + momo + exp;
-      const variance = totalCollected - expectedRevenue;
-
+      // Safe payload matching standard table columns
       const { error } = await supabase.from("shifts").insert([
         {
           supervisor_name: supervisorName,
           fuel_price: price,
           opening_meter: openM,
           closing_meter: closeM,
-          liters_sold: litersSold,
-          expected_revenue: expectedRevenue,
           cash_collected: cash,
           momo_collected: momo,
-          expenses: exp,
-          total_collected: totalCollected,
-          variance: variance,
           proof_image: closingImage,
         },
       ]);
