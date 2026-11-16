@@ -42,7 +42,6 @@ export async function POST(req: Request) {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("Arkesel Error:", data);
       return NextResponse.json(
         { error: "Failed to send SMS", details: data },
         { status: 500 }
@@ -55,7 +54,6 @@ export async function POST(req: Request) {
       data,
     });
   } catch (error: any) {
-    console.error("SMS Route Error:", error);
     return NextResponse.json(
       { error: error.message || "Internal server error" },
       { status: 500 }
