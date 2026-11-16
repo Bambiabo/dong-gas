@@ -2,8 +2,17 @@ import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const message = body.message;
+    let body;
+    try {
+      body = await req.json();
+    } catch (err) {
+      return NextResponse.json(
+        { error: "Invalid or empty JSON body. Please send { \"message\": \"your text\" }" },
+        { status: 400 }
+      );
+    }
+
+    const message = body?.message;
 
     if (!message) {
       return NextResponse.json(
@@ -20,7 +29,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           skipped: true,
-          reason: "ARKESEL_API_KEY or OWNER_PHONE_NUMBER is missing",
+          reason: "ARKESEL_API_KEY or OWNER_PHONE_NUMBER is missing in environment variables",
         },
         { status: 200 }
       );
