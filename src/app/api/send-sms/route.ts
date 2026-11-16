@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   try {
     const { message } = await req.json();
-    const apiKey = process.env.S1drSWluclRWemhSZUNyek51YmM;
-    const ownerPhone = process.env.OWNER_PHONE_NUMBER; // e.g., 233557442892
+
+    const apiKey = process.env.ARKESEL_API_KEY;
+    const ownerPhone = process.env.OWNER_PHONE_NUMBER; // e.g. 233557442892
     const senderId = process.env.SMS_SENDER_ID || "DongGas";
 
     if (!apiKey || !ownerPhone) {
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Example using Arkesel V2 SMS API (Ghana)
+    // Arkesel V2 SMS API
     const response = await fetch("https://sms.arkesel.com/api/v2/sms/send", {
       method: "POST",
       headers: {
@@ -23,16 +24,25 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         sender: senderId,
-        message,
-        recipients: [OWNER_PHONE_NUMBER],
+        message: message,
+        recipients: [ownerPhone], // 
       }),
     });
 
     const data = await response.json();
+
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: "Failed to send SMS", details: data },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({ success: true, data });
-  } catch (error) {
+  } catch (error: any) {
+    console.error("SMS Error:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to dispatch SMS" },
+      { error: error.message || "Something went wrong" },
       { status: 500 }
     );
   }
