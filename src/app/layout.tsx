@@ -4,7 +4,6 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Dong Gas Shift Management",
   description: "Secure gas station shift and cash audit",
-  manifest: "/manifest.json",
 };
 
 export const viewport: Viewport = {
