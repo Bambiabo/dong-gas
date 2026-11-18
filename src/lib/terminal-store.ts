@@ -1,4 +1,4 @@
-Set-Content -Path "src\lib\terminal-store.ts" -Value 'export type Stage = "OPENING" | "CLOSING" | "REPORT";
+export type Stage = "OPENING" | "CLOSING" | "REPORT";
 
 export type ShiftReport = {
   shiftId: string;
@@ -20,7 +20,7 @@ export type ShiftReport = {
 };
 
 export type Draft = {
-  version: 3;
+  version: number;
   shiftId: string;
   stage: Stage;
   updatedAt: string;
@@ -48,98 +48,22 @@ export type StoredReport = {
   lastError: string | null;
 };
 
-const DATABASE_NAME = "dong-gas-supervisor-v2";
-const DATABASE_VERSION = 2;
-const WORKSPACE_STORE = "workspace";
-const REPORT_STORE = "reports";
-const WORKSPACE_KEY = "active-shift";
+const DB_NAME = "dong-gas-v2";
 
-let databasePromise: Promise<IDBDatabase> | null = null;
-let writes: Promise<void> = Promise.resolve();
-
-function openDatabase(): Promise<IDBDatabase> {
-  if (databasePromise) return databasePromise;
-
-  databasePromise = new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
-      reject(new Error("This browser does not support offline storage."));
-      return;
-    }
-
-    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
-
-    request.onupgradeneeded = () => {
-      const database = request.result;
-
-      if (!database.objectStoreNames.contains(WORKSPACE_STORE)) {
-        database.createObjectStore(WORKSPACE_STORE);
-      }
-
-      if (!database.objectStoreNames.contains(REPORT_STORE)) {
-        database.createObjectStore(REPORT_STORE, { keyPath: "id" });
-      }
+async function openDb(): Promise<IDBDatabase> {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, 2);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("workspace")) db.createObjectStore("workspace");
+      if (!db.objectStoreNames.contains("reports")) db.createObjectStore("reports", { keyPath: "id" });
     };
-
-    request.onsuccess = () => {
-      const database = request.result;
-
-      database.onversionchange = () => {
-        database.close();
-        databasePromise = null;
-      };
-
-      resolve(database);
-    };
-
-    request.onerror = () => {
-      databasePromise = null;
-      reject(request.error || new Error("Could not open offline storage."));
-    };
-
-    request.onblocked = () => {
-      databasePromise = null;
-      reject(new Error("Storage upgrade is blocked. Close other terminal tabs, then reload."));
-    };
-  });
-
-  return databasePromise;
-}
-
-function serialize(operation: () => Promise<void>): Promise<void> {
-  const next = writes.catch(() => {}).then(operation);
-  writes = next;
-  return next;
-}
-
-async function transactionWrite(
-  stores: string[],
-  operation: (transaction: IDBTransaction) => void
-): Promise<void> {
-  const database = await openDatabase();
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(stores, "readwrite");
-
-    transaction.oncomplete = () => resolve();
-
-    transaction.onerror = () => {
-      reject(transaction.error || new Error("Offline save failed."));
-    };
-
-    transaction.onabort = () => {
-      reject(transaction.error || new Error("Offline save was interrupted."));
-    };
-
-    try {
-      operation(transaction);
-    } catch (error) {
-      transaction.abort();
-      reject(error);
-    }
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
   });
 }
 
-export function createDraft(price = "10.40"): Draft {
+export async function createDraft(price = "10.40"): Promise<Draft> {
   return {
     version: 3,
     shiftId: crypto.randomUUID(),
@@ -162,80 +86,28 @@ export function createDraft(price = "10.40"): Draft {
 }
 
 export async function readDraft(): Promise<Draft | null> {
-  await writes.catch(() => {});
-
-  const database = await openDatabase();
-
-  const raw = await new Promise<unknown>((resolve, reject) => {
-    const transaction = database.transaction(WORKSPACE_STORE, "readonly");
-
-    const request = transaction.objectStore(WORKSPACE_STORE).get(WORKSPACE_KEY);
-
-    request.onsuccess = () => resolve(request.result ?? null);
-
-    request.onerror = () => {
-      reject(request.error || new Error("Could not restore the workspace."));
-    };
+  const db = await openDb();
+  return new Promise((res) => {
+    const tx = db.transaction("workspace", "readonly");
+    const req = tx.objectStore("workspace").get("active-shift");
+    req.onsuccess = () => res(req.result || null);
+    req.onerror = () => res(null);
   });
-
-  if (!raw) return null;
-
-  const value = raw as Record<string, unknown>;
-
-  if (
-    (value.version !== 2 && value.version !== 3) ||
-    typeof value.shiftId !== "string" ||
-    typeof value.supervisorName !== "string" ||
-    typeof value.openingMeter !== "string"
-  ) {
-    throw new Error("The saved workspace could not be safely restored. Do not clear browser data.");
-  }
-
-  const validStages = ["OPENING", "CLOSING", "REPORT", "BLIND_DROP"];
-
-  if (!validStages.includes(String(value.stage))) {
-    throw new Error("The saved shift has an invalid stage.");
-  }
-
-  const draft = {
-    ...value,
-    version: 3,
-    stage: value.stage === "BLIND_DROP" ? "CLOSING" : value.stage,
-  } as unknown as Draft;
-
-  if (draft.stage === "REPORT" && !draft.report) {
-    throw new Error("The saved report is missing.");
-  }
-
-  if (value.version === 2) {
-    if (draft.report) {
-      const wasSynced = value.stage === "REPORT";
-      draft.stage = "REPORT";
-      await saveCompletedDraft(draft, wasSynced ? "synced" : "pending");
-    } else {
-      await saveDraft(draft);
-    }
-  }
-
-  return draft;
 }
 
-export function saveDraft(draft: Draft): Promise<void> {
-  return serialize(() =>
-    transactionWrite([WORKSPACE_STORE], (transaction) => {
-      transaction.objectStore(WORKSPACE_STORE).put(draft, WORKSPACE_KEY);
-    })
-  );
+export async function saveDraft(draft: Draft): Promise<void> {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("workspace", "readwrite");
+    tx.objectStore("workspace").put(draft, "active-shift");
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
 }
 
-export function saveCompletedDraft(
-  draft: Draft,
-  status: "pending" | "synced" = "pending"
-): Promise<void> {
-  if (!draft.report) {
-    return Promise.reject(new Error("The completed report is missing."));
-  }
-
+export async function saveCompletedDraft(draft: Draft, status: "pending" | "synced" = "pending"): Promise<void> {
+  if (!draft.report) return;
+  const db = await openDb();
   const record: StoredReport = {
     id: draft.shiftId,
     status,
@@ -244,52 +116,31 @@ export function saveCompletedDraft(
     syncedAt: status === "synced" ? new Date().toISOString() : null,
     lastError: null,
   };
-
-  return serialize(() =>
-    transactionWrite([WORKSPACE_STORE, REPORT_STORE], (transaction) => {
-      transaction.objectStore(WORKSPACE_STORE).put(draft, WORKSPACE_KEY);
-      transaction.objectStore(REPORT_STORE).put(record);
-    })
-  );
-}
-
-export async function listReports(): Promise<StoredReport[]> {
-  await writes.catch(() => {});
-
-  const database = await openDatabase();
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(REPORT_STORE, "readonly");
-    const request = transaction.objectStore(REPORT_STORE).getAll();
-
-    request.onsuccess = () => {
-      const records = request.result as StoredReport[];
-      resolve(records.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
-    };
-
-    request.onerror = () => {
-      reject(request.error || new Error("Could not load saved reports."));
-    };
+  return new Promise((res, rej) => {
+    const tx = db.transaction(["workspace", "reports"], "readwrite");
+    tx.objectStore("workspace").put(draft, "active-shift");
+    tx.objectStore("reports").put(record);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
   });
 }
 
-export function updateStoredReport(
-  id: string,
-  patch: Partial<Pick<StoredReport, "status" | "syncedAt" | "lastError">>
-): Promise<void> {
-  return serialize(() =>
-    transactionWrite([REPORT_STORE], (transaction) => {
-      const store = transaction.objectStore(REPORT_STORE);
-      const request = store.get(id);
+export async function listReports(): Promise<StoredReport[]> {
+  const db = await openDb();
+  return new Promise((res) => {
+    const tx = db.transaction("reports", "readonly");
+    const req = tx.objectStore("reports").getAll();
+    req.onsuccess = () => res(req.result || []);
+    req.onerror = () => res([]);
+  });
+}
 
-      request.onsuccess = () => {
-        if (!request.result) return;
-
-        store.put({
-          ...(request.result as StoredReport),
-          ...patch,
-        });
-      };
-    })
-  );
-}'
+export async function updateStoredReport(id: string, patch: Partial<StoredReport>): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction("reports", "readwrite");
+  const store = tx.objectStore("reports");
+  const req = store.get(id);
+  req.onsuccess = () => {
+    if (req.result) store.put({ ...req.result, ...patch });
+  };
+}
