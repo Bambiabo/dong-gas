@@ -66,6 +66,10 @@ export function litresText(value: number): string {
 
 async function openDb(): Promise<IDBDatabase> {
   return new Promise((res, rej) => {
+    if (typeof indexedDB === "undefined") {
+      rej(new Error("IndexedDB not supported"));
+      return;
+    }
     const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -77,7 +81,7 @@ async function openDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function createDraft(price = "10.40"): Promise<Draft> {
+export function createDraft(price = "10.40"): Draft {
   return {
     version: 3,
     shiftId: crypto.randomUUID(),
@@ -100,61 +104,81 @@ export async function createDraft(price = "10.40"): Promise<Draft> {
 }
 
 export async function readDraft(): Promise<Draft | null> {
-  const db = await openDb();
-  return new Promise((res) => {
-    const tx = db.transaction("workspace", "readonly");
-    const req = tx.objectStore("workspace").get("active-shift");
-    req.onsuccess = () => res(req.result || null);
-    req.onerror = () => res(null);
-  });
+  try {
+    const db = await openDb();
+    return new Promise((res) => {
+      const tx = db.transaction("workspace", "readonly");
+      const req = tx.objectStore("workspace").get("active-shift");
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => res(null);
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function saveDraft(draft: Draft): Promise<void> {
-  const db = await openDb();
-  return new Promise((res, rej) => {
-    const tx = db.transaction("workspace", "readwrite");
-    tx.objectStore("workspace").put(draft, "active-shift");
-    tx.oncomplete = () => res();
-    tx.onerror = () => rej(tx.error);
-  });
+  try {
+    const db = await openDb();
+    return new Promise((res, rej) => {
+      const tx = db.transaction("workspace", "readwrite");
+      tx.objectStore("workspace").put(draft, "active-shift");
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 export async function saveCompletedDraft(draft: Draft, status: "pending" | "synced" = "pending"): Promise<void> {
   if (!draft.report) return;
-  const db = await openDb();
-  const record: StoredReport = {
-    id: draft.shiftId,
-    status,
-    report: draft.report,
-    savedAt: new Date().toISOString(),
-    syncedAt: status === "synced" ? new Date().toISOString() : null,
-    lastError: null,
-  };
-  return new Promise((res, rej) => {
-    const tx = db.transaction(["workspace", "reports"], "readwrite");
-    tx.objectStore("workspace").put(draft, "active-shift");
-    tx.objectStore("reports").put(record);
-    tx.oncomplete = () => res();
-    tx.onerror = () => rej(tx.error);
-  });
+  try {
+    const db = await openDb();
+    const record: StoredReport = {
+      id: draft.shiftId,
+      status,
+      report: draft.report,
+      savedAt: new Date().toISOString(),
+      syncedAt: status === "synced" ? new Date().toISOString() : null,
+      lastError: null,
+    };
+    return new Promise((res, rej) => {
+      const tx = db.transaction(["workspace", "reports"], "readwrite");
+      tx.objectStore("workspace").put(draft, "active-shift");
+      tx.objectStore("reports").put(record);
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 export async function listReports(): Promise<StoredReport[]> {
-  const db = await openDb();
-  return new Promise((res) => {
-    const tx = db.transaction("reports", "readonly");
-    const req = tx.objectStore("reports").getAll();
-    req.onsuccess = () => res(req.result || []);
-    req.onerror = () => res([]);
-  });
+  try {
+    const db = await openDb();
+    return new Promise((res) => {
+      const tx = db.transaction("reports", "readonly");
+      const req = tx.objectStore("reports").getAll();
+      req.onsuccess = () => res(req.result || []);
+      req.onerror = () => res([]);
+    });
+  } catch {
+    return [];
+  }
 }
 
 export async function updateStoredReport(id: string, patch: Partial<StoredReport>): Promise<void> {
-  const db = await openDb();
-  const tx = db.transaction("reports", "readwrite");
-  const store = tx.objectStore("reports");
-  const req = store.get(id);
-  req.onsuccess = () => {
-    if (req.result) store.put({ ...req.result, ...patch });
-  };
+  try {
+    const db = await openDb();
+    const tx = db.transaction("reports", "readwrite");
+    const store = tx.objectStore("reports");
+    const req = store.get(id);
+    req.onsuccess = () => {
+      if (req.result) store.put({ ...req.result, ...patch });
+    };
+  } catch (error) {
+    console.error(error);
+  }
 }
