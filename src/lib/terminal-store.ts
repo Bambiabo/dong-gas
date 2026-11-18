@@ -50,6 +50,20 @@ export type StoredReport = {
 
 const DB_NAME = "dong-gas-v2";
 
+export function dateTime(value: string | number | Date): string {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+export function litresText(value: number): string {
+  return value.toLocaleString("en-GH", {
+    maximumFractionDigits: 3,
+  });
+}
+
 async function openDb(): Promise<IDBDatabase> {
   return new Promise((res, rej) => {
     const req = indexedDB.open(DB_NAME, 2);
