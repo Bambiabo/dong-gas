@@ -1,4 +1,4 @@
-import type { ShiftReport } from "@/lib/terminal-store";
+Set-Content -Path "src\lib\terminal-pdf.ts" -Value 'import type { ShiftReport } from "@/lib/terminal-store";
 
 export const STATION_NAME = "Dong Gas";
 
@@ -288,4 +288,4 @@ export async function buildPdf(
   }
 
   return doc.output("blob");
-}
+}'

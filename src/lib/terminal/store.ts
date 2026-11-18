@@ -1,4 +1,4 @@
-export type Stage = "OPENING" | "CLOSING" | "REPORT";
+Set-Content -Path "src\lib\terminal-store.ts" -Value 'export type Stage = "OPENING" | "CLOSING" | "REPORT";
 
 export type ShiftReport = {
   shiftId: string;
@@ -48,7 +48,6 @@ export type StoredReport = {
   lastError: string | null;
 };
 
-// Reuses the database name from the previous full component.
 const DATABASE_NAME = "dong-gas-supervisor-v2";
 const DATABASE_VERSION = 2;
 const WORKSPACE_STORE = "workspace";
@@ -99,11 +98,7 @@ function openDatabase(): Promise<IDBDatabase> {
 
     request.onblocked = () => {
       databasePromise = null;
-      reject(
-        new Error(
-          "Storage upgrade is blocked. Close other terminal tabs, then reload."
-        )
-      );
+      reject(new Error("Storage upgrade is blocked. Close other terminal tabs, then reload."));
     };
   });
 
@@ -174,9 +169,7 @@ export async function readDraft(): Promise<Draft | null> {
   const raw = await new Promise<unknown>((resolve, reject) => {
     const transaction = database.transaction(WORKSPACE_STORE, "readonly");
 
-    const request = transaction
-      .objectStore(WORKSPACE_STORE)
-      .get(WORKSPACE_KEY);
+    const request = transaction.objectStore(WORKSPACE_STORE).get(WORKSPACE_KEY);
 
     request.onsuccess = () => resolve(request.result ?? null);
 
@@ -195,9 +188,7 @@ export async function readDraft(): Promise<Draft | null> {
     typeof value.supervisorName !== "string" ||
     typeof value.openingMeter !== "string"
   ) {
-    throw new Error(
-      "The saved workspace could not be safely restored. Do not clear browser data."
-    );
+    throw new Error("The saved workspace could not be safely restored. Do not clear browser data.");
   }
 
   const validStages = ["OPENING", "CLOSING", "REPORT", "BLIND_DROP"];
@@ -206,7 +197,6 @@ export async function readDraft(): Promise<Draft | null> {
     throw new Error("The saved shift has an invalid stage.");
   }
 
-  // Migrate the previous Blind Drop screen into the normal Closing screen.
   const draft = {
     ...value,
     version: 3,
@@ -219,12 +209,8 @@ export async function readDraft(): Promise<Draft | null> {
 
   if (value.version === 2) {
     if (draft.report) {
-      // Previous REPORT records had already been saved to Supabase.
-      // A previous CLOSING record with a report was a frozen retry.
       const wasSynced = value.stage === "REPORT";
-
       draft.stage = "REPORT";
-
       await saveCompletedDraft(draft, wasSynced ? "synced" : "pending");
     } else {
       await saveDraft(draft);
@@ -237,9 +223,7 @@ export async function readDraft(): Promise<Draft | null> {
 export function saveDraft(draft: Draft): Promise<void> {
   return serialize(() =>
     transactionWrite([WORKSPACE_STORE], (transaction) => {
-      transaction
-        .objectStore(WORKSPACE_STORE)
-        .put(draft, WORKSPACE_KEY);
+      transaction.objectStore(WORKSPACE_STORE).put(draft, WORKSPACE_KEY);
     })
   );
 }
@@ -261,18 +245,11 @@ export function saveCompletedDraft(
     lastError: null,
   };
 
-  // The report and workspace are committed together.
   return serialize(() =>
-    transactionWrite(
-      [WORKSPACE_STORE, REPORT_STORE],
-      (transaction) => {
-        transaction
-          .objectStore(WORKSPACE_STORE)
-          .put(draft, WORKSPACE_KEY);
-
-        transaction.objectStore(REPORT_STORE).put(record);
-      }
-    )
+    transactionWrite([WORKSPACE_STORE, REPORT_STORE], (transaction) => {
+      transaction.objectStore(WORKSPACE_STORE).put(draft, WORKSPACE_KEY);
+      transaction.objectStore(REPORT_STORE).put(record);
+    })
   );
 }
 
@@ -287,10 +264,7 @@ export async function listReports(): Promise<StoredReport[]> {
 
     request.onsuccess = () => {
       const records = request.result as StoredReport[];
-
-      resolve(
-        records.sort((a, b) => b.savedAt.localeCompare(a.savedAt))
-      );
+      resolve(records.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
     };
 
     request.onerror = () => {
@@ -318,4 +292,4 @@ export function updateStoredReport(
       };
     })
   );
-}
+}'
