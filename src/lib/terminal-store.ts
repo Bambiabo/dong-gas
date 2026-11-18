@@ -1,4 +1,4 @@
-﻿export type Stage = "OPENING" | "CLOSING" | "REPORT";
+Set-Content -Path "src\lib\terminal-store.ts" -Value 'export type Stage = "OPENING" | "CLOSING" | "REPORT";
 
 export type ShiftReport = {
   shiftId: string;
@@ -70,9 +70,11 @@ function openDatabase(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = () => {
       const database = request.result;
+
       if (!database.objectStoreNames.contains(WORKSPACE_STORE)) {
         database.createObjectStore(WORKSPACE_STORE);
       }
+
       if (!database.objectStoreNames.contains(REPORT_STORE)) {
         database.createObjectStore(REPORT_STORE, { keyPath: "id" });
       }
@@ -80,10 +82,12 @@ function openDatabase(): Promise<IDBDatabase> {
 
     request.onsuccess = () => {
       const database = request.result;
+
       database.onversionchange = () => {
         database.close();
         databasePromise = null;
       };
+
       resolve(database);
     };
 
@@ -115,9 +119,16 @@ async function transactionWrite(
 
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(stores, "readwrite");
+
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error || new Error("Offline save failed."));
-    transaction.onabort = () => reject(transaction.error || new Error("Offline save was interrupted."));
+
+    transaction.onerror = () => {
+      reject(transaction.error || new Error("Offline save failed."));
+    };
+
+    transaction.onabort = () => {
+      reject(transaction.error || new Error("Offline save was interrupted."));
+    };
 
     try {
       operation(transaction);
@@ -152,16 +163,23 @@ export function createDraft(price = "10.40"): Draft {
 
 export async function readDraft(): Promise<Draft | null> {
   await writes.catch(() => {});
+
   const database = await openDatabase();
 
   const raw = await new Promise<unknown>((resolve, reject) => {
     const transaction = database.transaction(WORKSPACE_STORE, "readonly");
+
     const request = transaction.objectStore(WORKSPACE_STORE).get(WORKSPACE_KEY);
+
     request.onsuccess = () => resolve(request.result ?? null);
-    request.onerror = () => reject(request.error || new Error("Could not restore the workspace."));
+
+    request.onerror = () => {
+      reject(request.error || new Error("Could not restore the workspace."));
+    };
   });
 
   if (!raw) return null;
+
   const value = raw as Record<string, unknown>;
 
   if (
@@ -174,6 +192,7 @@ export async function readDraft(): Promise<Draft | null> {
   }
 
   const validStages = ["OPENING", "CLOSING", "REPORT", "BLIND_DROP"];
+
   if (!validStages.includes(String(value.stage))) {
     throw new Error("The saved shift has an invalid stage.");
   }
@@ -236,16 +255,21 @@ export function saveCompletedDraft(
 
 export async function listReports(): Promise<StoredReport[]> {
   await writes.catch(() => {});
+
   const database = await openDatabase();
 
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(REPORT_STORE, "readonly");
     const request = transaction.objectStore(REPORT_STORE).getAll();
+
     request.onsuccess = () => {
       const records = request.result as StoredReport[];
       resolve(records.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
     };
-    request.onerror = () => reject(request.error || new Error("Could not load saved reports."));
+
+    request.onerror = () => {
+      reject(request.error || new Error("Could not load saved reports."));
+    };
   });
 }
 
@@ -257,10 +281,15 @@ export function updateStoredReport(
     transactionWrite([REPORT_STORE], (transaction) => {
       const store = transaction.objectStore(REPORT_STORE);
       const request = store.get(id);
+
       request.onsuccess = () => {
         if (!request.result) return;
-        store.put({ ...(request.result as StoredReport), ...patch });
+
+        store.put({
+          ...(request.result as StoredReport),
+          ...patch,
+        });
       };
     })
   );
-}
+}'
