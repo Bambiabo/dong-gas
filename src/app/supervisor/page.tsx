@@ -961,9 +961,12 @@ export default function SupervisorTerminal() {
     setExporting(true);
 
     try {
-      const synced =
-        records.find((record) => record.id === report.shiftId)?.status ===
-        "synced";
+      // Read the upload status at export time rather than relying on a stale render.
+      const latestRecords = await listReports();
+      setRecords(latestRecords);
+      const synced = latestRecords.find(
+        (record) => record.id === report.shiftId
+      )?.status === "synced";
 
       const blob = await buildPdf(report, synced);
       const filename = reportFilename(report);
@@ -1736,7 +1739,7 @@ export default function SupervisorTerminal() {
             </section>
 
             <Card>
-              <h3 className="text-sm font-semibold">Reconciliation</h3>
+              <h3 className="text-sm font-semibold">Money breakdown and reconciliation</h3>
 
               <dl className="mt-3 divide-y divide-slate-800">
                 <Row label="Supervisor" value={draft.report.supervisor} />
@@ -1749,15 +1752,23 @@ export default function SupervisorTerminal() {
                   )} L`}
                 />
 
-                <Row label="Cash" value={ghs(draft.report.cash)} />
-                <Row label="MoMo" value={ghs(draft.report.momo)} />
-                <Row label="Expenses" value={ghs(draft.report.expenses)} />
+                <Row label="Cash collected" value={ghs(draft.report.cash)} />
+                <Row label="MoMo collected" value={ghs(draft.report.momo)} />
+                <Row
+                  label="Collections subtotal: cash + MoMo"
+                  value={ghs(draft.report.cash + draft.report.momo)}
+                />
+                <Row label="Shift expenses" value={ghs(draft.report.expenses)} />
 
                 <Row
                   label="Total accounted"
                   value={ghs(draft.report.accounted)}
                 />
               </dl>
+              <p className="mt-3 border-t border-slate-800 pt-3 text-[11px] leading-5 text-slate-500">
+                Total accounted = cash + MoMo + expenses paid from shift takings.
+                Cash must be the amount remaining after these expenses, excluding any opening float.
+              </p>
             </Card>
 
             <Card
