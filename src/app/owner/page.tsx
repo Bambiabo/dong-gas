@@ -331,7 +331,11 @@ export default function OwnerDashboard() {
   const requestRef = useRef(0);
   const actionLockRef = useRef(false);
 
-  const lastActivityRef = useRef(Date.now());
+  const lastActivityRef = useRef(0);
+
+  useEffect(() => {
+    lastActivityRef.current = Date.now();
+  }, []);
 
   const proofDialogRef =
     useRef<HTMLDialogElement | null>(null);
@@ -727,9 +731,7 @@ export default function OwnerDashboard() {
       if (listError) throw listError;
 
       for (
-        const factor of factors.totp.filter(
-          (item) => item.status === "unverified"
-        )
+        const factor of factors.all.filter((item) => item.factor_type === "totp" && item.status === "unverified")
       ) {
         const { error } =
           await supabase.auth.mfa.unenroll({
@@ -935,7 +937,7 @@ export default function OwnerDashboard() {
       ) {
         setProof({
           title:
-            `${shift.reference} — ${shift.supervisor}`,
+            `${shift.reference} â€” ${shift.supervisor}`,
           opening: result.opening || null,
           closing: result.closing || null,
         });
@@ -1157,7 +1159,7 @@ export default function OwnerDashboard() {
             </div>
 
             <p className="mt-5 text-center text-[9px] uppercase tracking-[0.24em] text-slate-500">
-              Dong Gas · Owner workspace
+              Dong Gas Â· Owner workspace
             </p>
 
             <h1 className="mt-2 text-center text-2xl font-semibold">
@@ -1227,7 +1229,7 @@ export default function OwnerDashboard() {
                   disabled={busy}
                   className={primaryCls + " w-full"}
                 >
-                  {busy ? "Signing in…" : "Continue"}
+                  {busy ? "Signing inâ€¦" : "Continue"}
                 </button>
               </form>
             )}
@@ -1319,7 +1321,7 @@ export default function OwnerDashboard() {
                       className={primaryCls + " w-full"}
                     >
                       {busy
-                        ? "Verifying…"
+                        ? "Verifyingâ€¦"
                         : "Open owner dashboard"}
                     </button>
                   </form>
@@ -1369,7 +1371,7 @@ export default function OwnerDashboard() {
     [
       "Expected sales",
       money(totals.expected),
-      "Meter difference × recorded fuel price",
+      "Meter difference Ã— recorded fuel price",
     ],
     [
       "Total accounted",
@@ -1474,7 +1476,7 @@ export default function OwnerDashboard() {
             className={buttonCls}
           >
             {proofLoading === shift.id
-              ? "Loading…"
+              ? "Loadingâ€¦"
               : "View photos"}
           </button>
         </td>
@@ -1522,7 +1524,7 @@ export default function OwnerDashboard() {
         <header className="mb-6 flex flex-col justify-between gap-5 border-b border-slate-800 pb-6 lg:flex-row lg:items-center">
           <div>
             <p className="text-[9px] uppercase tracking-[0.23em] text-amber-300">
-              Dong Gas · Owner intelligence
+              Dong Gas Â· Owner intelligence
             </p>
 
             <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -1540,7 +1542,7 @@ export default function OwnerDashboard() {
               onClick={() => void fetchShifts()}
               className={buttonCls}
             >
-              {loading ? "Refreshing…" : "Refresh"}
+              {loading ? "Refreshingâ€¦" : "Refresh"}
             </button>
 
             <button
@@ -1600,7 +1602,7 @@ export default function OwnerDashboard() {
 
         <div className="mb-5 flex flex-col justify-between gap-2 text-[10px] leading-5 text-slate-500 sm:flex-row">
           <p>
-            {periodLabel} · Ghana time ·{" "}
+            {periodLabel} Â· Ghana time Â·{" "}
             {filteredShifts.length} matching records
           </p>
 
@@ -1646,7 +1648,7 @@ export default function OwnerDashboard() {
                     htmlFor="new-baseline"
                     className={labelCls}
                   >
-                    New baseline · litres
+                    New baseline Â· litres
                   </label>
 
                   <input
@@ -1669,7 +1671,7 @@ export default function OwnerDashboard() {
                     htmlFor="baseline-reason"
                     className={labelCls}
                   >
-                    Reason · at least 10 characters
+                    Reason Â· at least 10 characters
                   </label>
 
                   <input
@@ -1736,7 +1738,7 @@ export default function OwnerDashboard() {
                   className={primaryCls + " lg:col-span-2"}
                 >
                   {busy
-                    ? "Verifying and saving…"
+                    ? "Verifying and savingâ€¦"
                     : "Confirm audited baseline change"}
                 </button>
               </form>
@@ -1771,7 +1773,7 @@ export default function OwnerDashboard() {
                     htmlFor="new-password"
                     className={labelCls}
                   >
-                    New password · 12+ characters
+                    New password Â· 12+ characters
                   </label>
 
                   <input
@@ -1840,7 +1842,7 @@ export default function OwnerDashboard() {
                   className={primaryCls + " sm:col-span-2"}
                 >
                   {busy
-                    ? "Updating…"
+                    ? "Updatingâ€¦"
                     : "Verify and update password"}
                 </button>
               </form>
@@ -1962,7 +1964,7 @@ export default function OwnerDashboard() {
                 <p className={labelCls}>{label}</p>
 
                 <p className="break-words font-mono text-xl font-semibold tracking-tight sm:text-2xl">
-                  {loading ? "Loading…" : value}
+                  {loading ? "Loadingâ€¦" : value}
                 </p>
 
                 <p className="mt-2 text-[10px] leading-5 text-slate-500">
@@ -2009,7 +2011,7 @@ export default function OwnerDashboard() {
               role="status"
               className="py-12 text-center text-sm text-slate-400"
             >
-              Loading owner-authorized financial records…
+              Loading owner-authorized financial recordsâ€¦
             </p>
           </Card>
         ) : !filteredShifts.length ? (
@@ -2107,7 +2109,7 @@ export default function OwnerDashboard() {
                     className={buttonCls + " mt-3 w-full"}
                   >
                     {proofLoading === shift.id
-                      ? "Loading evidence…"
+                      ? "Loading evidenceâ€¦"
                       : "View meter evidence"}
                   </button>
                 </Card>
@@ -2167,7 +2169,7 @@ export default function OwnerDashboard() {
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
               <p className="text-xs text-slate-500">
-                Page {currentPage} of {pageCount} ·{" "}
+                Page {currentPage} of {pageCount} Â·{" "}
                 {filteredShifts.length} records
               </p>
 
@@ -2200,7 +2202,7 @@ export default function OwnerDashboard() {
 
         <footer className="mt-8 border-t border-slate-800 pt-5 text-[10px] leading-6 text-slate-600">
           <p>
-            Dong Gas · Owner dashboard · Authenticator verification
+            Dong Gas Â· Owner dashboard Â· Authenticator verification
             and server-side owner authorization
           </p>
 
