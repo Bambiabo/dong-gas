@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+import type {
+  FormEvent,
+  ReactNode,
+} from "react";
 
 import { supabase } from "@/lib/supabase";
 
@@ -36,13 +45,21 @@ const OWNER_WHATSAPP = (
   process.env.NEXT_PUBLIC_OWNER_WHATSAPP || ""
 ).replace(/\D/g, "");
 
-type Message = {
+type Notice = {
   type: "info" | "success" | "error";
   text: string;
 };
 
-type SaveStatus = "saving" | "saved" | "error";
-type OfflineStatus = "preparing" | "prepared" | "unavailable";
+type SaveStatus =
+  | "saving"
+  | "saved"
+  | "error";
+
+type OfflineStatus =
+  | "unchecked"
+  | "preparing"
+  | "prepared"
+  | "unavailable";
 
 const inputCls =
   "w-full rounded-xl border border-slate-700 bg-slate-950/60 " +
@@ -51,23 +68,31 @@ const inputCls =
   "focus:ring-4 focus:ring-amber-400/10 disabled:opacity-50";
 
 const labelCls =
-  "mb-2 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400";
+  "mb-2 block text-[10px] font-semibold uppercase " +
+  "tracking-[0.15em] text-slate-400";
 
 const primaryCls =
-  "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl " +
-  "bg-amber-400 px-5 py-4 text-sm font-semibold text-slate-950 " +
-  "transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50";
-
-const secondaryCls =
-  "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl " +
-  "border border-slate-700 bg-slate-900 px-4 py-3 text-xs " +
-  "font-medium text-slate-300 transition hover:border-slate-500 " +
+  "flex min-h-12 w-full items-center justify-center gap-2 " +
+  "rounded-xl bg-amber-400 px-5 py-4 text-sm font-semibold " +
+  "text-slate-950 transition hover:bg-amber-300 " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message;
+const secondaryCls =
+  "flex min-h-12 w-full items-center justify-center gap-2 " +
+  "rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 " +
+  "text-xs font-medium text-slate-300 transition " +
+  "hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-50";
 
-  if (typeof error === "object" && error !== null && "message" in error) {
+function errorText(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error
+  ) {
     return String(error.message);
   }
 
@@ -83,81 +108,72 @@ function Card({
 }) {
   return (
     <section
-      className={`rounded-2xl border border-slate-800 bg-slate-900/75 p-5 ${className}`}
+      className={
+        "rounded-2xl border border-slate-800 " +
+        "bg-slate-900/75 p-5 " +
+        className
+      }
     >
       {children}
     </section>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
     <div className="flex items-start justify-between gap-4 py-3 text-xs leading-5">
       <dt className="text-slate-400">{label}</dt>
 
-      <dd className="max-w-[65%] break-words text-right font-medium text-slate-100">
+      <dd className="max-w-[65%] break-words text-right font-medium">
         {value}
       </dd>
     </div>
   );
 }
 
-function CameraIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      className="h-6 w-6"
-      aria-hidden="true"
-    >
-      <path d="M14.5 4h-5L8 7H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-1.5-3Z" />
-      <circle cx="12" cy="13" r="4" />
-    </svg>
-  );
-}
-
-async function prepareOfflineFiles(): Promise<void> {
+async function prepareOfflineFiles() {
   if (
     process.env.NODE_ENV !== "production" ||
     !("serviceWorker" in navigator)
   ) {
-    throw new Error("Offline reopening is available in the production build.");
+    throw new Error(
+      "Offline reopening is prepared in the production build."
+    );
   }
 
-  await navigator.serviceWorker.register("/terminal-sw.js", {
-    scope: "/",
-  });
+  await navigator.serviceWorker.register(
+    "/terminal-sw.js",
+    { scope: "/" }
+  );
 
-  const registration = await navigator.serviceWorker.ready;
+  const registration =
+    await navigator.serviceWorker.ready;
 
-  // Load PDF code while online so it can also be cached.
   await import("jspdf");
 
   const worker = registration.active;
 
   if (!worker) {
-    throw new Error("The offline worker is not active yet.");
+    throw new Error(
+      "The offline worker is not active yet."
+    );
   }
 
   const assets = new Set<string>();
 
-  performance.getEntriesByType("resource").forEach((entry) => {
-    const url = new URL(entry.name, window.location.origin);
-
-    if (
-      url.origin === window.location.origin &&
-      url.pathname.startsWith("/_next/static/")
-    ) {
-      assets.add(url.href);
-    }
-  });
-
-  document
-    .querySelectorAll<HTMLScriptElement>("script[src]")
-    .forEach((element) => {
-      const url = new URL(element.src, window.location.origin);
+  performance
+    .getEntriesByType("resource")
+    .forEach((entry) => {
+      const url = new URL(
+        entry.name,
+        window.location.origin
+      );
 
       if (
         url.origin === window.location.origin &&
@@ -168,9 +184,30 @@ async function prepareOfflineFiles(): Promise<void> {
     });
 
   document
-    .querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
+    .querySelectorAll<HTMLScriptElement>("script[src]")
     .forEach((element) => {
-      const url = new URL(element.href, window.location.origin);
+      const url = new URL(
+        element.src,
+        window.location.origin
+      );
+
+      if (
+        url.origin === window.location.origin &&
+        url.pathname.startsWith("/_next/static/")
+      ) {
+        assets.add(url.href);
+      }
+    });
+
+  document
+    .querySelectorAll<HTMLLinkElement>(
+      'link[rel="stylesheet"]'
+    )
+    .forEach((element) => {
+      const url = new URL(
+        element.href,
+        window.location.origin
+      );
 
       if (
         url.origin === window.location.origin &&
@@ -185,7 +222,12 @@ async function prepareOfflineFiles(): Promise<void> {
 
     const timeout = window.setTimeout(() => {
       channel.port1.close();
-      reject(new Error("Offline preparation timed out. Try again online."));
+
+      reject(
+        new Error(
+          "Offline preparation timed out. Retry online."
+        )
+      );
     }, 60000);
 
     channel.port1.onmessage = (event) => {
@@ -196,7 +238,10 @@ async function prepareOfflineFiles(): Promise<void> {
         resolve();
       } else {
         reject(
-          new Error(event.data?.error || "Offline preparation failed.")
+          new Error(
+            event.data?.error ||
+              "Offline preparation failed."
+          )
         );
       }
     };
@@ -213,51 +258,85 @@ async function prepareOfflineFiles(): Promise<void> {
 }
 
 export default function SupervisorTerminal() {
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [records, setRecords] = useState<StoredReport[]>([]);
+  const [draft, setDraft] =
+    useState<Draft | null>(null);
+
+  const [records, setRecords] =
+    useState<StoredReport[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [recoveryError, setRecoveryError] = useState<string | null>(null);
-  const [restored, setRestored] = useState(false);
 
+  const [recoveryError, setRecoveryError] =
+    useState<string | null>(null);
+
+  const [restored, setRestored] = useState(false);
   const [online, setOnline] = useState(true);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("saving");
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
+  const [saveStatus, setSaveStatus] =
+    useState<SaveStatus>("saving");
+
+  const [lastSavedAt, setLastSavedAt] =
+    useState<string | null>(null);
 
   const [offlineStatus, setOfflineStatus] =
-    useState<OfflineStatus>("unavailable");
+    useState<OfflineStatus>("unchecked");
 
-  const [offlineDetail, setOfflineDetail] = useState("");
+  const [offlineDetail, setOfflineDetail] =
+    useState("");
 
-  const [message, setMessage] = useState<Message | null>(null);
+  const [notice, setNotice] =
+    useState<Notice | null>(null);
+
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncingMeter, setSyncingMeter] = useState(false);
+  const [stationStatus, setStationStatus] = useState<
+    "unchecked" | "checking" | "current" | "local" | "error"
+  >("unchecked");
+  const [stationCheckedAt, setStationCheckedAt] = useState<string | null>(null);
+
   const [exporting, setExporting] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraActive, setCameraActive] =
+    useState(false);
+
+  const [cameraStarting, setCameraStarting] =
+    useState(false);
+
   const [rearCamera, setRearCamera] = useState(true);
-
   const [scanning, setScanning] = useState(false);
-  const [scannedValue, setScannedValue] = useState<string | null>(null);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [scannedValue, setScannedValue] =
+    useState<string | null>(null);
+
+  const videoRef =
+    useRef<HTMLVideoElement | null>(null);
+
   const streamRef = useRef<MediaStream | null>(null);
 
-  const cameraRequest = useRef(0);
-  const scanRequest = useRef(0);
-  const saveRevision = useRef(0);
+  const cameraRequestRef = useRef(0);
+  const scanRequestRef = useRef(0);
+  const saveRevisionRef = useRef(0);
 
-  const actionLock = useRef(false);
-  const syncLock = useRef(false);
-  const offlinePreparationLock = useRef(false);
+  const actionLockRef = useRef(false);
+  const syncLockRef = useRef(false);
+  const offlineLockRef = useRef(false);
+  const draftRef = useRef<Draft | null>(null);
+  const openingRequestRef = useRef(0);
+  const openingBusyRef = useRef(false);
 
-  const notify = (type: Message["type"], text: string) => {
-    setMessage({ type, text });
-  };
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  const notify = useCallback(
+    (type: Notice["type"], text: string) => {
+      setNotice({ type, text });
+    },
+    []
+  );
 
   const patchDraft = (patch: Partial<Draft>) => {
     setDraft((current) =>
@@ -271,204 +350,254 @@ export default function SupervisorTerminal() {
     );
   };
 
-  const persist = async (value: Draft) => {
-    const revision = ++saveRevision.current;
-    setSaveStatus("saving");
+  const persist = useCallback(
+    async (value: Draft) => {
+      const revision = ++saveRevisionRef.current;
 
-    try {
-      await saveDraft(value);
+      setSaveStatus("saving");
 
-      if (revision === saveRevision.current) {
-        setSaveStatus("saved");
-        setLastSavedAt(value.updatedAt);
+      try {
+        await saveDraft(value);
+
+        if (revision === saveRevisionRef.current) {
+          setSaveStatus("saved");
+          setLastSavedAt(value.updatedAt);
+        }
+      } catch (error) {
+        if (revision === saveRevisionRef.current) {
+          setSaveStatus("error");
+        }
+
+        throw error;
       }
-    } catch (error) {
-      if (revision === saveRevision.current) {
-        setSaveStatus("error");
-      }
+    },
+    []
+  );
 
-      throw error;
-    }
-  };
-
-  const refreshRecords = async () => {
+  const refreshRecords = useCallback(async () => {
     const saved = await listReports();
     setRecords(saved);
     return saved;
-  };
+  }, []);
 
-  const fetchBaseline = async () => {
-    const { data: shifts, error: shiftError } = await supabase
-      .from("shifts")
-      .select("closing_meter")
-      .not("closing_meter", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (shiftError) throw shiftError;
-
-    if (shifts?.length && shifts[0].closing_meter != null) {
-      const meter = Number(shifts[0].closing_meter);
-
+  const fetchBaseline = useCallback(async () => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const { data, error } = await supabase
+        .rpc("get_main_pump_opening")
+        .abortSignal(controller.signal);
+      if (error) throw error;
+      const row = Array.isArray(data) ? data[0] : null;
+      const meter = row?.opening_meter == null ? NaN : Number(row.opening_meter);
       if (!Number.isFinite(meter) || meter < 0) {
-        throw new Error("The previous closing reading is invalid.");
+        throw new Error("Configure the main pump baseline before opening the first shift.");
       }
-
-      return {
-        meter: String(meter),
-        source: "Previous completed shift",
-      };
+      return { meter: String(meter), source: String(row.source || "Station baseline") };
+    } finally {
+      window.clearTimeout(timeout);
     }
+  }, []);
 
-    const { data: baselines, error: baselineError } = await supabase
-      .from("station_baselines")
-      .select("baseline_meter")
-      .eq("pump_name", "main")
-      .limit(1);
-
-    if (baselineError) throw baselineError;
-
-    if (baselines?.length && baselines[0].baseline_meter != null) {
-      const meter = Number(baselines[0].baseline_meter);
-
-      if (!Number.isFinite(meter) || meter < 0) {
-        throw new Error("The configured baseline is invalid.");
-      }
-
-      return {
-        meter: String(meter),
-        source: "Owner-configured baseline",
-      };
-    }
-
-    throw new Error(
-      "Configure the main pump baseline before opening the first shift."
-    );
-  };
-
-  const syncPending = async (manual = false) => {
-    if (syncLock.current) return;
-
+  const refreshOpening = useCallback(async (manual = false) => {
+    const current = draftRef.current;
+    if (!current || current.stage !== "OPENING" || actionLockRef.current || openingBusyRef.current) return;
     if (!navigator.onLine) {
-      if (manual) {
-        notify("info", "You are offline. Saved shifts remain on this device.");
-      }
+      setStationStatus("local");
+      if (manual) notify("info", "Offline: this reading is local and may differ from other devices.");
       return;
     }
-
-    syncLock.current = true;
-    setSyncing(true);
-
-    let uploaded = 0;
-    let failed = 0;
-
+    const requestId = ++openingRequestRef.current;
+    const shiftId = current.shiftId;
+    openingBusyRef.current = true;
+    setSyncingMeter(true);
+    setStationStatus("checking");
     try {
-      const pending = (await listReports())
-        .filter((record) => record.status === "pending")
-        .sort((a, b) =>
-          a.report.closedAt.localeCompare(b.report.closedAt)
-        );
+      const reports = await listReports();
+      if (reports.some((report) => report.status === "pending")) {
+        setStationStatus("local");
+        if (manual) notify("info", "Pending uploads are preserved. Use Sync now, resolve any upload errors, then Resync. The shared reading has not been applied.");
+        return;
+      }
+      const baseline = await fetchBaseline();
+      if (requestId !== openingRequestRef.current || actionLockRef.current ||
+          draftRef.current?.shiftId !== shiftId || draftRef.current?.stage !== "OPENING") return;
+      setDraft((value) => {
+        if (!value || value.shiftId !== shiftId || value.stage !== "OPENING") return value;
+        if (value.openingMeter === baseline.meter && value.openingSource === baseline.source && value.baselineReady) return value;
+        return { ...value, openingMeter: baseline.meter, openingSource: baseline.source,
+          baselineReady: true, updatedAt: new Date().toISOString() };
+      });
+      setStationCheckedAt(new Date().toISOString());
+      setStationStatus("current");
+      if (manual) notify("success", `Shared opening reading checked: ${baseline.meter} L. Confirm it against the physical meter before opening.`);
+    } catch (error) {
+      setStationStatus("error");
+      if (manual) notify("error", errorText(error));
+    } finally {
+      openingBusyRef.current = false;
+      setSyncingMeter(false);
+    }
+  }, [fetchBaseline, notify]);
 
-      for (const record of pending) {
-        const report = record.report;
-        const controller = new AbortController();
+  const syncPending = useCallback(
+    async (manual = false) => {
+      if (syncLockRef.current) return;
 
-        const timeout = window.setTimeout(() => controller.abort(), 30000);
-
-        try {
-          const payload = {
-            client_shift_id: report.shiftId,
-            supervisor_name: report.supervisor,
-            fuel_price: report.price,
-            opening_meter: report.openM,
-            closing_meter: report.closeM,
-            cash_collected: report.cash,
-            momo_collected: report.momo,
-            expenses: report.expenses,
-            opening_proof_image: report.openingImage,
-            proof_image: report.closingImage,
-          };
-
-          const { error } = await supabase
-            .from("shifts")
-            .upsert([payload], {
-              onConflict: "client_shift_id",
-              ignoreDuplicates: true,
-            })
-            .abortSignal(controller.signal);
-
-          if (error) throw error;
-
-          await updateStoredReport(record.id, {
-            status: "synced",
-            syncedAt: new Date().toISOString(),
-            lastError: null,
-          });
-
-          uploaded += 1;
-        } catch (error) {
-          failed += 1;
-
-          await updateStoredReport(record.id, {
-            lastError: errorText(error),
-          });
-
-          // Stop at the first failure to preserve upload order.
-          break;
-        } finally {
-          window.clearTimeout(timeout);
+      if (!navigator.onLine) {
+        if (manual) {
+          notify(
+            "info",
+            "You are offline. Saved shifts remain on this device."
+          );
         }
+        return;
       }
 
-      await refreshRecords();
+      syncLockRef.current = true;
+      setSyncing(true);
 
-      if (manual) {
-        notify(
-          failed ? "error" : "success",
-          failed
-            ? "Some shifts are still pending. Check the saved-shifts panel for the upload error."
-            : uploaded
-            ? `${uploaded} shift${uploaded === 1 ? "" : "s"} synced to Supabase.`
-            : "No pending shifts to upload."
+      let uploaded = 0;
+      let failed = false;
+
+      try {
+        const pending = (await listReports())
+          .filter(
+            (record) =>
+              record.status === "pending"
+          )
+          .sort((a, b) =>
+            a.report.closedAt.localeCompare(
+              b.report.closedAt
+            )
+          );
+
+        for (const record of pending) {
+          const report = record.report;
+          const controller =
+            new AbortController();
+
+          const timeout = window.setTimeout(
+            () => controller.abort(),
+            30000
+          );
+
+          try {
+            const payload = {
+              client_shift_id: report.shiftId,
+              supervisor_name: report.supervisor,
+              fuel_price: report.price,
+              opening_meter: report.openM,
+              closing_meter: report.closeM,
+              cash_collected: report.cash,
+              momo_collected: report.momo,
+              expenses: report.expenses,
+              opening_proof_image:
+                report.openingImage,
+              proof_image: report.closingImage,
+            };
+
+            const { data: receipt, error } = await supabase
+              .rpc(
+                "submit_supervisor_shift",
+                { p_payload: payload }
+              )
+              .abortSignal(controller.signal);
+
+            if (error) throw error;
+            if (!receipt || typeof receipt !== "object" || receipt.accepted !== true) {
+              throw new Error("The server did not confirm this shift was accepted. The local report is retained.");
+            }
+
+            await updateStoredReport(
+              record.id,
+              {
+                status: "synced",
+                syncedAt:
+                  new Date().toISOString(),
+                lastError: null,
+              }
+            );
+
+            uploaded += 1;
+          } catch (error) {
+            failed = true;
+
+            await updateStoredReport(
+              record.id,
+              {
+                lastError: errorText(error),
+              }
+            );
+
+            break;
+          } finally {
+            window.clearTimeout(timeout);
+          }
+        }
+
+        await refreshRecords();
+
+        if (manual) {
+          notify(
+            failed ? "error" : "success",
+            failed
+              ? "Some shifts remain pending. Open saved shifts to inspect the upload error."
+              : uploaded
+              ? `${uploaded} shift${
+                  uploaded === 1 ? "" : "s"
+                } synced.`
+              : "No pending shifts to upload."
+          );
+        }
+      } catch (error) {
+        if (manual) {
+          notify("error", errorText(error));
+        }
+      } finally {
+        syncLockRef.current = false;
+        setSyncing(false);
+        void refreshOpening();
+      }
+    },
+    [notify, refreshRecords, refreshOpening]
+  );
+
+  const prepareOffline = useCallback(
+    async (manual = false) => {
+      if (offlineLockRef.current) return;
+
+      offlineLockRef.current = true;
+      setOfflineStatus("preparing");
+
+      try {
+        await prepareOfflineFiles();
+
+        setOfflineStatus("prepared");
+
+        setOfflineDetail(
+          "App files cached. Test reopening once in airplane mode."
         );
+
+        if (manual) {
+          notify(
+            "success",
+            "Offline files prepared. Test once in airplane mode."
+          );
+        }
+      } catch (error) {
+        setOfflineStatus("unavailable");
+        setOfflineDetail(errorText(error));
+
+        if (manual) {
+          notify("error", errorText(error));
+        }
+      } finally {
+        offlineLockRef.current = false;
       }
-    } catch (error) {
-      if (manual) notify("error", errorText(error));
-    } finally {
-      syncLock.current = false;
-      setSyncing(false);
-    }
-  };
-
-  const prepareOffline = async (manual = false) => {
-    if (offlinePreparationLock.current) return;
-
-    offlinePreparationLock.current = true;
-    setOfflineStatus("preparing");
-
-    try {
-      await prepareOfflineFiles();
-
-      setOfflineStatus("prepared");
-      setOfflineDetail(
-        "App files cached. Test reopening once in airplane mode."
-      );
-
-      if (manual) {
-        notify(
-          "success",
-          "Offline app files prepared. Test the terminal once in airplane mode."
-        );
-      }
-    } catch (error) {
-      setOfflineStatus("unavailable");
-      setOfflineDetail(errorText(error));
-
-      if (manual) notify("error", errorText(error));
-    } finally {
-      offlinePreparationLock.current = false;
-    }
-  };
+    },
+    [notify]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -480,38 +609,42 @@ export default function SupervisorTerminal() {
         const saved = await readDraft();
         const localReports = await listReports();
 
-        let current = saved;
+        if (cancelled) return;
 
-        if (!current) {
-          current = createDraft();
+        let current = saved ? { ...saved } : createDraft();
+        const latestLocal = [...localReports].sort((a, b) =>
+          b.report.closedAt.localeCompare(a.report.closedAt))[0];
+        const hasPending = localReports.some((report) => report.status === "pending");
 
-          // Prefer the device's newest completed reading, including
-          // shifts that have not uploaded yet.
-          const latestLocal = [...localReports].sort((a, b) =>
-            b.report.closedAt.localeCompare(a.report.closedAt)
-          )[0];
+        if (!saved && latestLocal) {
+          current.fuelPrice = String(latestLocal.report.price);
+          current.openingMeter = String(latestLocal.report.closeM);
+          current.openingSource = "Local previous closing - not verified online";
+          current.baselineReady = true;
+        }
 
-          if (latestLocal) {
-            current.openingMeter = String(latestLocal.report.closeM);
-            current.openingSource = "Previous shift on this device";
-            current.baselineReady = true;
-            current.fuelPrice = String(latestLocal.report.price);
-          } else if (navigator.onLine) {
+        if (current.stage === "OPENING") {
+          if (navigator.onLine && !hasPending) {
             try {
               const baseline = await fetchBaseline();
-
-              current.openingMeter = baseline.meter;
-              current.openingSource = baseline.source;
-              current.baselineReady = true;
+              if (cancelled) return;
+              current = { ...current, openingMeter: baseline.meter,
+                openingSource: baseline.source, baselineReady: true,
+                updatedAt: new Date().toISOString() };
+              setStationCheckedAt(new Date().toISOString());
+              setStationStatus("current");
             } catch (error) {
               if (!cancelled) {
-                notify("error", errorText(error));
+                setStationStatus("error");
+                notify("error", `Shared reading could not be verified: ${errorText(error)} Saved work is retained.`);
               }
             }
+          } else {
+            setStationStatus("local");
           }
-
-          await saveDraft(current);
         }
+        if (cancelled) return;
+        await saveDraft(current);
 
         if (cancelled) return;
 
@@ -524,7 +657,10 @@ export default function SupervisorTerminal() {
       } catch (error) {
         if (cancelled) return;
 
-        setRecoveryError(errorText(error));
+        setRecoveryError(
+          errorText(error)
+        );
+
         setLoading(false);
       }
     };
@@ -534,87 +670,175 @@ export default function SupervisorTerminal() {
     return () => {
       cancelled = true;
     };
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchBaseline, notify]);
 
   useEffect(() => {
-    if (!draft || loading || recoveryError) return;
+    if (
+      !draft ||
+      loading ||
+      recoveryError
+    ) {
+      return;
+    }
 
-    void persist(draft).catch(console.error);
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, loading, recoveryError]);
+    void persist(draft).catch(
+      console.error
+    );
+  }, [
+    draft,
+    loading,
+    recoveryError,
+    persist,
+  ]);
 
   useEffect(() => {
     if (loading || recoveryError) return;
 
-    const onlineHandler = () => {
+    const onOnline = () => {
       setOnline(true);
       void syncPending();
       void prepareOffline();
     };
 
-    const offlineHandler = () => setOnline(false);
-
-    const focusHandler = () => {
-      if (navigator.onLine) void syncPending();
+    const onOffline = () => {
+      setOnline(false);
     };
 
-    window.addEventListener("online", onlineHandler);
-    window.addEventListener("offline", offlineHandler);
-    window.addEventListener("focus", focusHandler);
+    const onFocus = () => {
+      if (navigator.onLine) {
+        void syncPending();
+      }
+    };
+
+    window.addEventListener(
+      "online",
+      onOnline
+    );
+
+    window.addEventListener(
+      "offline",
+      onOffline
+    );
+
+    window.addEventListener(
+      "focus",
+      onFocus
+    );
 
     if (navigator.onLine) {
       void syncPending();
       void prepareOffline();
     }
 
-    const interval = window.setInterval(() => {
-      if (navigator.onLine) void syncPending();
-    }, 45000);
+    const interval =
+      window.setInterval(() => {
+        if (navigator.onLine) {
+          void syncPending();
+        }
+      }, 45000);
 
     return () => {
-      window.removeEventListener("online", onlineHandler);
-      window.removeEventListener("offline", offlineHandler);
-      window.removeEventListener("focus", focusHandler);
+      window.removeEventListener(
+        "online",
+        onOnline
+      );
+
+      window.removeEventListener(
+        "offline",
+        onOffline
+      );
+
+      window.removeEventListener(
+        "focus",
+        onFocus
+      );
+
       window.clearInterval(interval);
     };
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, recoveryError]);
+  }, [
+    loading,
+    recoveryError,
+    syncPending,
+    prepareOffline,
+  ]);
 
   useEffect(() => {
-    if (!cameraActive || !videoRef.current || !streamRef.current) return;
+    if (loading || recoveryError || draft?.stage !== "OPENING") return;
+    const refresh = () => { void refreshOpening(); };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loading, recoveryError, draft?.stage, draft?.shiftId, refreshOpening]);
 
-    videoRef.current.srcObject = streamRef.current;
-    void videoRef.current.play().catch(() => {});
+  useEffect(() => {
+    if (
+      !cameraActive ||
+      !videoRef.current ||
+      !streamRef.current
+    ) {
+      return;
+    }
+
+    videoRef.current.srcObject =
+      streamRef.current;
+
+    void videoRef.current
+      .play()
+      .catch(() => {});
   }, [cameraActive, cameraStarting]);
 
   useEffect(() => {
     return () => {
-      cameraRequest.current += 1;
-      scanRequest.current += 1;
-      streamRef.current?.getTracks().forEach((track) => track.stop());
+      cameraRequestRef.current += 1;
+      scanRequestRef.current += 1;
+
+      streamRef.current
+        ?.getTracks()
+        .forEach((track) =>
+          track.stop()
+        );
     };
   }, []);
 
   const stopCamera = () => {
-    cameraRequest.current += 1;
+    cameraRequestRef.current += 1;
 
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current
+      ?.getTracks()
+      .forEach((track) =>
+        track.stop()
+      );
+
     streamRef.current = null;
 
-    if (videoRef.current) videoRef.current.srcObject = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
 
     setCameraActive(false);
     setCameraStarting(false);
   };
 
-  const startCamera = async (rear: boolean) => {
+  const startCamera = async (
+    rear: boolean
+  ) => {
     stopCamera();
 
-    if (!navigator.mediaDevices?.getUserMedia) {
+    if (
+      !navigator.mediaDevices
+        ?.getUserMedia
+    ) {
       notify(
         "error",
         "Camera unavailable. Use HTTPS or localhost and allow camera permission."
@@ -622,7 +846,8 @@ export default function SupervisorTerminal() {
       return;
     }
 
-    const requestId = ++cameraRequest.current;
+    const requestId =
+      ++cameraRequestRef.current;
 
     setCameraActive(true);
     setCameraStarting(true);
@@ -632,242 +857,344 @@ export default function SupervisorTerminal() {
       let stream: MediaStream;
 
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: rear ? { exact: "environment" } : "user",
-          },
-          audio: false,
-        });
+        stream =
+          await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: rear
+                ? {
+                    exact:
+                      "environment",
+                  }
+                : "user",
+            },
+            audio: false,
+          });
       } catch {
-        if (requestId !== cameraRequest.current) return;
+        if (
+          requestId !==
+          cameraRequestRef.current
+        ) {
+          return;
+        }
 
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: rear ? "environment" : "user",
-          },
-          audio: false,
-        });
+        stream =
+          await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: rear
+                ? "environment"
+                : "user",
+            },
+            audio: false,
+          });
       }
 
-      if (requestId !== cameraRequest.current) {
-        stream.getTracks().forEach((track) => track.stop());
+      if (
+        requestId !==
+        cameraRequestRef.current
+      ) {
+        stream
+          .getTracks()
+          .forEach((track) =>
+            track.stop()
+          );
         return;
       }
 
       streamRef.current = stream;
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
+        videoRef.current.srcObject =
+          stream;
+
+        await videoRef.current
+          .play()
+          .catch(() => {});
       }
 
       setCameraStarting(false);
     } catch (error) {
-      if (requestId !== cameraRequest.current) return;
+      if (
+        requestId !==
+        cameraRequestRef.current
+      ) {
+        return;
+      }
 
       stopCamera();
-      notify("error", `Could not open camera: ${errorText(error)}`);
+
+      notify(
+        "error",
+        `Could not open camera: ${errorText(
+          error
+        )}`
+      );
     }
   };
 
-  const runOCR = async (image: string) => {
+  const runOCR = async (
+    image: string
+  ) => {
     if (!navigator.onLine) {
       notify(
         "info",
-        "Photo retained offline. Enter the closing meter manually."
+        "Photo retained offline. Enter the closing reading manually."
       );
       return;
     }
 
-    const requestId = ++scanRequest.current;
-    const controller = new AbortController();
+    const requestId =
+      ++scanRequestRef.current;
 
-    const timeout = window.setTimeout(() => controller.abort(), 25000);
+    const controller =
+      new AbortController();
+
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      25000
+    );
 
     setScanning(true);
 
     try {
-      const response = await fetch("/api/ocr", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image }),
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        "/api/ocr",
+        {
+          method: "POST",
 
-      const data: { digits?: string | number } = await response.json();
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
 
-      if (requestId !== scanRequest.current) return;
+          body: JSON.stringify({
+            image,
+          }),
 
-      const digits = String(data.digits ?? "")
+          signal:
+            controller.signal,
+        }
+      );
+
+      const data: {
+        digits?: string | number;
+      } = await response.json();
+
+      if (
+        requestId !==
+        scanRequestRef.current
+      ) {
+        return;
+      }
+
+      const digits = String(
+        data.digits ?? ""
+      )
         .trim()
         .replace(/,/g, "");
 
       if (
         response.ok &&
-        /^\d+(?:\.\d+)?$/.test(digits) &&
-        Number.isFinite(Number(digits))
+        /^\d+(?:\.\d+)?$/.test(
+          digits
+        ) &&
+        Number.isFinite(
+          Number(digits)
+        )
       ) {
         setScannedValue(digits);
-        notify("success", "Review the AI reading against the meter photo.");
+
+        notify(
+          "success",
+          "Review the AI reading against the photo."
+        );
       } else {
         notify(
           "info",
-          "AI could not read the display clearly. Enter the closing meter manually."
+          "AI could not read the meter clearly. Enter the closing reading manually."
         );
       }
     } catch {
-      if (requestId === scanRequest.current) {
+      if (
+        requestId ===
+        scanRequestRef.current
+      ) {
         notify(
           "info",
-          "AI reading is unavailable. Your photo is retained; enter the reading manually."
+          "AI is unavailable. Your photo is retained."
         );
       }
     } finally {
       window.clearTimeout(timeout);
 
-      if (requestId === scanRequest.current) setScanning(false);
+      if (
+        requestId ===
+        scanRequestRef.current
+      ) {
+        setScanning(false);
+      }
     }
   };
 
-  const capturePhoto = async (opening: boolean) => {
+  const capturePhoto = async (
+    opening: boolean
+  ) => {
     const video = videoRef.current;
 
-    if (!video || video.readyState < 2 || !video.videoWidth) {
-      notify("info", "Wait for the camera preview.");
+    if (
+      !video ||
+      video.readyState < 2 ||
+      !video.videoWidth
+    ) {
+      notify(
+        "info",
+        "Wait for the camera preview."
+      );
       return;
     }
 
-    const canvas = document.createElement("canvas");
-    const scale = Math.min(1, 1600 / video.videoWidth);
+    const canvas =
+      document.createElement(
+        "canvas"
+      );
 
-    canvas.width = Math.round(video.videoWidth * scale);
-    canvas.height = Math.round(video.videoHeight * scale);
+    const scale = Math.min(
+      1,
+      1600 / video.videoWidth
+    );
 
-    const context = canvas.getContext("2d");
+    canvas.width = Math.round(
+      video.videoWidth * scale
+    );
+
+    canvas.height = Math.round(
+      video.videoHeight * scale
+    );
+
+    const context =
+      canvas.getContext("2d");
+
     if (!context) return;
 
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    context.drawImage(
+      video,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
 
-    const image = canvas.toDataURL("image/jpeg", 0.85);
+    const image = canvas.toDataURL(
+      "image/jpeg",
+      0.85
+    );
 
     patchDraft(
-      opening ? { openingImage: image } : { closingImage: image }
+      opening
+        ? {
+            openingImage: image,
+          }
+        : {
+            closingImage: image,
+          }
     );
 
     stopCamera();
     await runOCR(image);
   };
 
-  const syncOpeningMeter = async () => {
-    if (!draft || syncingMeter || actionLock.current) return;
-
-    if (!navigator.onLine) {
-      notify(
-        "info",
-        "Internet is required to resync the station baseline. An already-saved baseline remains available offline."
-      );
-      return;
-    }
-
-    const pending = records.filter((record) => record.status === "pending");
-
-    if (pending.length) {
-      notify(
-        "info",
-        "Upload pending shifts before resyncing from Supabase. The local previous closing remains your baseline."
-      );
-      return;
-    }
-
-    setSyncingMeter(true);
-
-    try {
-      const baseline = await fetchBaseline();
-
-      patchDraft({
-        openingMeter: baseline.meter,
-        openingSource: baseline.source,
-        baselineReady: true,
-      });
-
-      notify("success", "Opening baseline synchronized.");
-    } catch (error) {
-      notify("error", errorText(error));
-    } finally {
-      setSyncingMeter(false);
-    }
+  const resyncBaseline = async () => {
+    await refreshOpening(true);
   };
 
   const openShift = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-
-    if (!draft || actionLock.current) return;
-
-    const price = Number(draft.fuelPrice);
-    const meter = Number(draft.openingMeter);
-
-    if (
-      !draft.supervisorName.trim() ||
-      !draft.openingImage ||
-      !draft.baselineReady ||
-      !draft.fuelPrice.trim() ||
-      !draft.openingMeter.trim() ||
-      !Number.isFinite(price) ||
-      !Number.isFinite(meter) ||
-      price <= 0 ||
-      meter < 0
-    ) {
-      notify(
-        "error",
-        "Enter the supervisor name, capture the opening photo, and confirm a valid price and baseline."
-      );
+    const current = draftRef.current;
+    if (!current || current.stage !== "OPENING" || actionLockRef.current || openingBusyRef.current) return;
+    const price = Number(current.fuelPrice);
+    const meter = Number(current.openingMeter);
+    if (!current.supervisorName.trim() || current.supervisorName.trim().length > 120 ||
+        !current.openingImage || !current.baselineReady || !current.fuelPrice.trim() ||
+        !current.openingMeter.trim() || !Number.isFinite(price) || !Number.isFinite(meter) ||
+        price <= 0 || price > 1000000 || meter < 0 || meter > 1e12) {
+      notify("error", "Enter the supervisor name, opening photo, valid price and verified baseline.");
       return;
     }
-
-    actionLock.current = true;
+    actionLockRef.current = true;
+    openingRequestRef.current += 1;
     setBusy(true);
-
-    const next: Draft = {
-      ...draft,
-      supervisorName: draft.supervisorName.trim(),
-      stage: "CLOSING",
-      openedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
     try {
+      if (navigator.onLine) {
+        const reports = await listReports();
+        if (reports.some((report) => report.status === "pending")) {
+          throw new Error("Upload pending shifts successfully before opening another online shift. Saved reports are retained.");
+        }
+        const baseline = await fetchBaseline();
+        setStationStatus("current");
+        setStationCheckedAt(new Date().toISOString());
+        if (baseline.meter !== current.openingMeter) {
+          setDraft((value) => value && value.stage === "OPENING" && value.shiftId === current.shiftId
+            ? { ...value, openingMeter: baseline.meter, openingSource: baseline.source,
+                baselineReady: true, updatedAt: new Date().toISOString() }
+            : value);
+          notify("info", `The shared opening changed to ${baseline.meter} L. Review your opening photo and the physical meter, then press start again.`);
+          return;
+        }
+      }
+      const next: Draft = { ...current, supervisorName: current.supervisorName.trim(),
+        stage: "CLOSING", openedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       await persist(next);
-
+      draftRef.current = next;
       stopCamera();
       setScannedValue(null);
       setDraft(next);
-
-      notify(
-        "success",
-        "Opening saved on this device. Return to this screen when the shift ends."
-      );
-
-      // Request persistent storage following a user action.
-      void navigator.storage?.persist?.().catch(() => false);
+      notify("success", navigator.onLine
+        ? "Opening saved on this device after checking the shared reading. Complete this shift on this device."
+        : "Opening saved offline on this device. Other devices cannot see this unfinished shift. Do not operate the same pump from another device.");
+      if (navigator.storage?.persist) void navigator.storage.persist().catch(() => false);
     } catch (error) {
-      notify("error", `Opening not saved: ${errorText(error)}`);
+      setStationStatus("error");
+      notify("error", `Opening not started: ${errorText(error)}`);
     } finally {
-      actionLock.current = false;
+      actionLockRef.current = false;
       setBusy(false);
     }
   };
 
-  const closeShift = async (event: FormEvent<HTMLFormElement>) => {
+  const closeShift = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
     event.preventDefault();
 
-    if (!draft || actionLock.current) return;
+    if (
+      !draft ||
+      actionLockRef.current
+    ) {
+      return;
+    }
 
-    const openM = Number(draft.openingMeter);
-    const closeM = Number(draft.closingMeter);
-    const price = Number(draft.fuelPrice);
-    const cash = Number(draft.cashCollected);
-    const momo = Number(draft.momoCollected);
-    const expenses = Number(draft.expenses || "0");
+    const openM = Number(
+      draft.openingMeter
+    );
+
+    const closeM = Number(
+      draft.closingMeter
+    );
+
+    const price = Number(
+      draft.fuelPrice
+    );
+
+    const cash = Number(
+      draft.cashCollected
+    );
+
+    const momo = Number(
+      draft.momoCollected
+    );
+
+    const expenses = Number(
+      draft.expenses || "0"
+    );
 
     if (
       !draft.openedAt ||
@@ -875,7 +1202,14 @@ export default function SupervisorTerminal() {
       !draft.closingMeter.trim() ||
       !draft.cashCollected.trim() ||
       !draft.momoCollected.trim() ||
-      ![openM, closeM, price, cash, momo, expenses].every(Number.isFinite) ||
+      ![
+        openM,
+        closeM,
+        price,
+        cash,
+        momo,
+        expenses,
+      ].every(Number.isFinite) ||
       price <= 0 ||
       openM < 0 ||
       closeM <= openM ||
@@ -885,24 +1219,31 @@ export default function SupervisorTerminal() {
     ) {
       notify(
         "error",
-        "Capture the closing photo and check your readings and collections. Closing meter must exceed opening meter. Use 0 for empty collection amounts."
+        "Check the closing photo, meter and collection amounts. Closing must exceed opening. Use 0 where no money was collected."
       );
       return;
     }
 
-    actionLock.current = true;
+    actionLockRef.current = true;
     setBusy(true);
     setSaveStatus("saving");
 
-    const litres = closeM - openM;
-    const expected = litres * price;
-    const accounted = cash + momo + expenses;
+    const litres =
+      closeM - openM;
+
+    const expected =
+      litres * price;
+
+    const accounted =
+      cash + momo + expenses;
 
     const report: ShiftReport = {
       shiftId: draft.shiftId,
-      supervisor: draft.supervisorName,
+      supervisor:
+        draft.supervisorName,
       openedAt: draft.openedAt,
-      closedAt: new Date().toISOString(),
+      closedAt:
+        new Date().toISOString(),
       price,
       openM,
       closeM,
@@ -912,25 +1253,34 @@ export default function SupervisorTerminal() {
       momo,
       expenses,
       accounted,
-      variance: accounted - expected,
-      openingImage: draft.openingImage,
-      closingImage: draft.closingImage,
+      variance:
+        accounted - expected,
+      openingImage:
+        draft.openingImage,
+      closingImage:
+        draft.closingImage,
     };
 
     const next: Draft = {
       ...draft,
       stage: "REPORT",
       report,
-      updatedAt: new Date().toISOString(),
+      updatedAt:
+        new Date().toISOString(),
     };
 
     try {
-      // Save locally first, even when the network is available.
-      await saveCompletedDraft(next);
+      await saveCompletedDraft(
+        next
+      );
 
       stopCamera();
       setDraft(next);
-      setLastSavedAt(next.updatedAt);
+
+      setLastSavedAt(
+        next.updatedAt
+      );
+
       setSaveStatus("saved");
 
       await refreshRecords();
@@ -938,16 +1288,22 @@ export default function SupervisorTerminal() {
       notify(
         "success",
         navigator.onLine
-          ? "Shift saved on this device. Upload will be attempted automatically."
+          ? "Shift saved locally. Upload will be attempted automatically."
           : "Shift saved offline. It will upload when the app is open and internet returns."
       );
 
       void syncPending();
     } catch (error) {
       setSaveStatus("error");
-      notify("error", `Shift could not be saved: ${errorText(error)}`);
+
+      notify(
+        "error",
+        `Shift not saved: ${errorText(
+          error
+        )}`
+      );
     } finally {
-      actionLock.current = false;
+      actionLockRef.current = false;
       setBusy(false);
     }
   };
@@ -961,34 +1317,61 @@ export default function SupervisorTerminal() {
     setExporting(true);
 
     try {
-      // Read the upload status at export time rather than relying on a stale render.
-      const latestRecords = await listReports();
-      setRecords(latestRecords);
-      const synced = latestRecords.find(
-        (record) => record.id === report.shiftId
-      )?.status === "synced";
+      const latestRecords =
+        await listReports();
 
-      const blob = await buildPdf(report, synced);
-      const filename = reportFilename(report);
+      setRecords(latestRecords);
+
+      const synced =
+        latestRecords.find(
+          (record) =>
+            record.id ===
+            report.shiftId
+        )?.status === "synced";
+
+      const blob = await buildPdf(
+        report,
+        synced
+      );
+
+      const filename =
+        reportFilename(report);
 
       if (!share) {
-        downloadBlob(blob, filename);
+        downloadBlob(
+          blob,
+          filename
+        );
         return;
       }
 
-      const file = new File([blob], filename, {
-        type: "application/pdf",
-      });
+      const file = new File(
+        [blob],
+        filename,
+        {
+          type:
+            "application/pdf",
+        }
+      );
 
-      const text = reportSummary(report, synced);
+      const text =
+        reportSummary(
+          report,
+          synced
+        );
 
       if (
-        typeof navigator.share === "function" &&
-        typeof navigator.canShare === "function" &&
-        navigator.canShare({ files: [file] })
+        typeof navigator.share ===
+          "function" &&
+        typeof navigator.canShare ===
+          "function" &&
+        navigator.canShare({
+          files: [file],
+        })
       ) {
         await navigator.share({
-          title: `${STATION_NAME} Shift Report`,
+          title:
+            `${STATION_NAME} Shift Report`,
           text,
           files: [file],
         });
@@ -996,11 +1379,19 @@ export default function SupervisorTerminal() {
         return;
       }
 
-      downloadBlob(blob, filename);
+      downloadBlob(
+        blob,
+        filename
+      );
 
-      if (OWNER_WHATSAPP && navigator.onLine) {
+      if (
+        OWNER_WHATSAPP &&
+        navigator.onLine
+      ) {
         window.open(
-          `https://wa.me/${OWNER_WHATSAPP}?text=${encodeURIComponent(text)}`,
+          `https://wa.me/${OWNER_WHATSAPP}?text=${encodeURIComponent(
+            text
+          )}`,
           "_blank",
           "noopener,noreferrer"
         );
@@ -1008,21 +1399,25 @@ export default function SupervisorTerminal() {
 
       notify(
         "info",
-        "PDF prepared for download. Attach it in WhatsApp when ready."
+        "PDF prepared for download. Attach it in WhatsApp."
       );
     } catch (error) {
       if (
-        typeof error === "object" &&
+        typeof error ===
+          "object" &&
         error !== null &&
         "name" in error &&
-        error.name === "AbortError"
+        error.name ===
+          "AbortError"
       ) {
         return;
       }
 
       notify(
         "error",
-        `Could not export the report: ${errorText(error)}. If offline, reconnect once to prepare the PDF files.`
+        `Could not export: ${errorText(
+          error
+        )}. If offline, reconnect once to prepare PDF files.`
       );
     } finally {
       setExporting(false);
@@ -1030,48 +1425,60 @@ export default function SupervisorTerminal() {
   };
 
   const newShift = async () => {
-    if (!draft?.report || actionLock.current) return;
-
-    actionLock.current = true;
+    if (!draft?.report || actionLockRef.current) return;
+    actionLockRef.current = true;
     setBusy(true);
-
-    const next = createDraft(String(draft.report.price));
-
-    next.openingMeter = String(draft.report.closeM);
-    next.openingSource = "Previous shift on this device";
-    next.baselineReady = true;
-
     try {
+      const next = createDraft(String(draft.report.price));
+      next.openingMeter = String(draft.report.closeM);
+      next.openingSource = "Local previous closing - not verified online";
+      next.baselineReady = true;
+      const reports = await listReports();
+      const hasPending = reports.some((report) => report.status === "pending");
+      if (navigator.onLine && !hasPending) {
+        const baseline = await fetchBaseline();
+        next.openingMeter = baseline.meter;
+        next.openingSource = baseline.source;
+        setStationCheckedAt(new Date().toISOString());
+        setStationStatus("current");
+      } else {
+        setStationStatus("local");
+      }
       await persist(next);
-
+      draftRef.current = next;
       setDraft(next);
       setConfirmNew(false);
       setRestored(false);
       setScannedValue(null);
-
-      notify(
-        "success",
-        "Next shift ready. Previous reports and pending uploads are retained."
-      );
+      notify("success", hasPending
+        ? "New local workspace prepared. Pending reports are retained; upload them before starting another online shift."
+        : "Next workspace ready. Existing reports are retained. Online openings use the shared station reading.");
     } catch (error) {
-      notify("error", errorText(error));
+      notify("error", `Next workspace was not created: ${errorText(error)}`);
     } finally {
-      actionLock.current = false;
+      actionLockRef.current = false;
       setBusy(false);
     }
   };
 
-  const renderScanner = (opening: boolean) => {
+  const renderScanner = (
+    opening: boolean
+  ) => {
     if (!draft) return null;
 
-    const image = opening ? draft.openingImage : draft.closingImage;
+    const image = opening
+      ? draft.openingImage
+      : draft.closingImage;
 
     return (
       <Card>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold">
-              {opening ? "Opening" : "Closing"} meter photo
+              {opening
+                ? "Opening"
+                : "Closing"}{" "}
+              meter photo
             </h3>
 
             <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -1080,23 +1487,30 @@ export default function SupervisorTerminal() {
           </div>
 
           <span className="shrink-0 rounded-full border border-slate-700 px-2 py-1 text-[9px] uppercase tracking-wider text-slate-400">
-            {online ? "AI assisted" : "Offline capture"}
+            {online
+              ? "AI assisted"
+              : "Offline capture"}
           </span>
         </div>
 
-        {!image && !cameraActive && (
-          <button
-            type="button"
-            onClick={() => void startCamera(rearCamera)}
-            className="flex min-h-44 w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700 bg-slate-950/30 text-sm text-slate-300 transition hover:border-amber-400/60"
-          >
-            <span className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-amber-300">
-              <CameraIcon />
-            </span>
+        {!image &&
+          !cameraActive && (
+            <button
+              type="button"
+              onClick={() =>
+                void startCamera(
+                  rearCamera
+                )
+              }
+              className="flex min-h-44 w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700 bg-slate-950/30 text-sm text-slate-300 hover:border-amber-400/60"
+            >
+              <span className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-amber-300">
+                Capture evidence
+              </span>
 
-            Open camera
-          </button>
-        )}
+              Open camera
+            </button>
+          )}
 
         {cameraActive && (
           <div className="space-y-3">
@@ -1119,11 +1533,20 @@ export default function SupervisorTerminal() {
 
               <button
                 type="button"
-                disabled={cameraStarting}
+                disabled={
+                  cameraStarting
+                }
                 onClick={() => {
-                  const next = !rearCamera;
-                  setRearCamera(next);
-                  void startCamera(next);
+                  const next =
+                    !rearCamera;
+
+                  setRearCamera(
+                    next
+                  );
+
+                  void startCamera(
+                    next
+                  );
                 }}
                 className="absolute right-3 top-3 rounded-lg bg-black/75 px-3 py-2.5 text-xs"
               >
@@ -1133,8 +1556,14 @@ export default function SupervisorTerminal() {
 
             <button
               type="button"
-              disabled={cameraStarting}
-              onClick={() => void capturePhoto(opening)}
+              disabled={
+                cameraStarting
+              }
+              onClick={() =>
+                void capturePhoto(
+                  opening
+                )
+              }
               className={primaryCls}
             >
               Capture meter photo
@@ -1150,87 +1579,138 @@ export default function SupervisorTerminal() {
           </div>
         )}
 
-        {image && !cameraActive && (
-          <div className="space-y-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={image}
-              alt={`${opening ? "Opening" : "Closing"} meter evidence`}
-              className="max-h-72 w-full rounded-xl border border-slate-800 bg-black object-contain"
-            />
-
-            <p className="text-xs text-emerald-300">
-              Photo captured
-            </p>
-
-            {scanning && (
-              <p className="rounded-xl bg-amber-400/5 p-3 text-xs text-amber-200">
-                Reading meter with AI…
-              </p>
-            )}
-
-            {scannedValue && !scanning && (
-              <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4">
-                <p className={labelCls}>AI detected reading</p>
-
-                <p className="break-all font-mono text-3xl text-amber-300">
-                  {scannedValue}
-                </p>
-
-                {opening ? (
-                  <p className="mt-2 text-[11px] leading-5 text-slate-400">
-                    Reference only. The opening baseline remains locked.
-                  </p>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      patchDraft({ closingMeter: scannedValue });
-                      setScannedValue(null);
-                    }}
-                    className={primaryCls + " mt-3"}
-                  >
-                    Accept reading
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                disabled={scanning}
-                onClick={() => {
-                  patchDraft(
+        {image &&
+          !cameraActive && (
+            <div className="space-y-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={image}
+                alt={
+                  `${
                     opening
-                      ? { openingImage: null }
-                      : { closingImage: null }
-                  );
+                      ? "Opening"
+                      : "Closing"
+                  } meter evidence`
+                }
+                className="max-h-72 w-full rounded-xl border border-slate-800 bg-black object-contain"
+              />
 
-                  setScannedValue(null);
-                  void startCamera(rearCamera);
-                }}
-                className={secondaryCls}
-              >
-                Retake
-              </button>
+              <p className="text-xs text-emerald-300">
+                Photo captured
+              </p>
 
-              <button
-                type="button"
-                disabled={scanning || !online}
-                onClick={() => void runOCR(image)}
-                className={secondaryCls}
-              >
-                Retry AI reading
-              </button>
+              {scanning && (
+                <p className="rounded-xl bg-amber-400/5 p-3 text-xs text-amber-200">
+                  Reading meter with AI…
+                </p>
+              )}
+
+              {scannedValue &&
+                !scanning && (
+                  <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4">
+                    <p
+                      className={
+                        labelCls
+                      }
+                    >
+                      AI detected reading
+                    </p>
+
+                    <p className="break-all font-mono text-3xl text-amber-300">
+                      {scannedValue}
+                    </p>
+
+                    {opening ? (
+                      <p className="mt-2 text-[11px] leading-5 text-slate-400">
+                        Reference only. Opening baseline remains locked.
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          patchDraft({
+                            closingMeter:
+                              scannedValue,
+                          });
+
+                          setScannedValue(
+                            null
+                          );
+                        }}
+                        className={
+                          primaryCls +
+                          " mt-3"
+                        }
+                      >
+                        Accept reading
+                      </button>
+                    )}
+                  </div>
+                )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    scanning
+                  }
+                  onClick={() => {
+                    patchDraft(
+                      opening
+                        ? {
+                            openingImage:
+                              null,
+                          }
+                        : {
+                            closingImage:
+                              null,
+                          }
+                    );
+
+                    setScannedValue(
+                      null
+                    );
+
+                    void startCamera(
+                      rearCamera
+                    );
+                  }}
+                  className={
+                    secondaryCls
+                  }
+                >
+                  Retake
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    scanning ||
+                    !online
+                  }
+                  onClick={() =>
+                    void runOCR(
+                      image
+                    )
+                  }
+                  className={
+                    secondaryCls
+                  }
+                >
+                  Retry AI
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
       </Card>
     );
   };
 
-  if (loading || recoveryError || !draft) {
+  if (
+    loading ||
+    recoveryError ||
+    !draft
+  ) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#080d16] px-5 text-slate-100">
         <section className="w-full max-w-sm rounded-3xl border border-slate-800 bg-slate-900 p-8 text-center">
@@ -1239,18 +1719,25 @@ export default function SupervisorTerminal() {
           </div>
 
           <h1 className="mt-6 text-xl font-semibold">
-            {recoveryError ? "Recovery needs attention" : "Opening workspace"}
+            {recoveryError
+              ? "Recovery needs attention"
+              : "Opening workspace"}
           </h1>
 
           <p className="mt-3 text-sm leading-6 text-slate-400">
             {recoveryError ||
-              "Restoring your saved shift and checking pending uploads."}
+              "Restoring your shift and checking pending uploads."}
           </p>
 
           {recoveryError ? (
             <button
-              onClick={() => window.location.reload()}
-              className={primaryCls + " mt-6"}
+              onClick={() =>
+                window.location.reload()
+              }
+              className={
+                primaryCls +
+                " mt-6"
+              }
             >
               Retry recovery
             </button>
@@ -1262,18 +1749,28 @@ export default function SupervisorTerminal() {
     );
   }
 
-  const pendingCount = records.filter(
-    (record) => record.status === "pending"
-  ).length;
+  const pendingCount =
+    records.filter(
+      (record) =>
+        record.status ===
+        "pending"
+    ).length;
 
-  const currentRecord = records.find(
-    (record) => record.id === draft.shiftId
-  );
+  const currentSynced =
+    records.find(
+      (record) =>
+        record.id ===
+        draft.shiftId
+    )?.status === "synced";
 
-  const currentSynced = currentRecord?.status === "synced";
+  const steps = [
+    "OPENING",
+    "CLOSING",
+    "REPORT",
+  ];
 
-  const steps = ["OPENING", "CLOSING", "REPORT"];
-  const stepIndex = steps.indexOf(draft.stage);
+  const stepIndex =
+    steps.indexOf(draft.stage);
 
   return (
     <main className="min-h-screen bg-[#080d16] px-4 pb-12 pt-6 text-slate-100 sm:pt-10">
@@ -1299,13 +1796,16 @@ export default function SupervisorTerminal() {
             </div>
 
             <span
-              className={`rounded-full border px-3 py-1.5 text-[10px] ${
-                online
+              className={
+                "rounded-full border px-3 py-1.5 text-[10px] " +
+                (online
                   ? "border-emerald-400/20 text-emerald-300"
-                  : "border-amber-400/20 text-amber-300"
-              }`}
+                  : "border-amber-400/20 text-amber-300")
+              }
             >
-              {online ? "Online" : "Offline"}
+              {online
+                ? "Online"
+                : "Offline"}
             </span>
           </div>
 
@@ -1313,21 +1813,27 @@ export default function SupervisorTerminal() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-amber-300">
-                  {shiftReference(draft.shiftId)}
+                  {shiftReference(
+                    draft.shiftId
+                  )}
                 </p>
 
                 <h2 className="mt-2 text-lg font-semibold">
-                  {draft.stage === "OPENING"
+                  {draft.stage ===
+                  "OPENING"
                     ? "Open your shift"
-                    : draft.stage === "CLOSING"
+                    : draft.stage ===
+                      "CLOSING"
                     ? "Shift workspace"
                     : "Shift report"}
                 </h2>
 
                 <p className="mt-1 text-xs leading-5 text-slate-400">
-                  {draft.stage === "OPENING"
+                  {draft.stage ===
+                  "OPENING"
                     ? "Verify the baseline and capture opening evidence."
-                    : draft.stage === "CLOSING"
+                    : draft.stage ===
+                      "CLOSING"
                     ? "Opening saved. Complete closing details at shift end."
                     : "Saved locally first. Upload status is shown separately."}
                 </p>
@@ -1339,70 +1845,132 @@ export default function SupervisorTerminal() {
             </div>
 
             <ol className="mt-5 grid grid-cols-3 gap-2">
-              {["Opening", "Closing", "Report"].map((label, index) => (
-                <li
-                  key={label}
-                  aria-current={index === stepIndex ? "step" : undefined}
-                >
-                  <div
-                    className={`h-1 rounded-full ${
-                      index < stepIndex
-                        ? "bg-emerald-400"
-                        : index === stepIndex
-                        ? "bg-amber-400"
-                        : "bg-slate-800"
-                    }`}
-                  />
+              {[
+                "Opening",
+                "Closing",
+                "Report",
+              ].map(
+                (label, index) => (
+                  <li
+                    key={label}
+                    aria-current={
+                      index ===
+                      stepIndex
+                        ? "step"
+                        : undefined
+                    }
+                  >
+                    <div
+                      className={
+                        "h-1 rounded-full " +
+                        (index <
+                        stepIndex
+                          ? "bg-emerald-400"
+                          : index ===
+                            stepIndex
+                          ? "bg-amber-400"
+                          : "bg-slate-800")
+                      }
+                    />
 
-                  <p className="mt-2 text-[10px] text-slate-400">
-                    {label}
-                  </p>
-                </li>
-              ))}
+                    <p className="mt-2 text-[10px] text-slate-400">
+                      {label}
+                    </p>
+                  </li>
+                )
+              )}
             </ol>
           </div>
         </header>
 
-        <section className="mb-5 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+        <Card className="mb-5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+            Option A v1 - shared online opening readings
+          </p>
+          <p role="status" className="mt-2 text-xs leading-6 text-slate-300">
+            {draft.stage !== "OPENING"
+              ? "This shift's opening is locked on this device. Unfinished shifts do not move between devices."
+              : !online
+              ? "Offline: showing a saved local reading, not a live shared value."
+              : stationStatus === "current"
+              ? "Shared station reading checked. It is checked again before starting."
+              : stationStatus === "checking"
+              ? "Checking the shared station reading..."
+              : stationStatus === "local"
+              ? "Local reading only. Resolve pending uploads, then Resync."
+              : stationStatus === "error"
+              ? "Shared reading could not be verified. Use Resync to see the error."
+              : "Shared station reading has not been verified yet."}
+          </p>
+          {stationCheckedAt && draft.stage === "OPENING" && (
+            <p className="mt-1 text-[10px] text-slate-500">
+              Last successful check: {new Date(stationCheckedAt).toLocaleTimeString("en-GB")}
+            </p>
+          )}
+          <p className="mt-2 text-[10px] leading-5 text-slate-500">
+            One operating device per pump. Online updates are checked every 15 seconds while this page is open.
+            Saved shifts below belong to this device; uploaded reports are viewed centrally in the owner dashboard.
+          </p>
+        </Card>
+
+        <Card className="mb-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p
                 aria-live="polite"
-                className={`text-xs font-medium ${
-                  saveStatus === "error"
+                className={
+                  "text-xs font-medium " +
+                  (saveStatus ===
+                  "error"
                     ? "text-red-300"
-                    : saveStatus === "saved"
+                    : saveStatus ===
+                      "saved"
                     ? "text-emerald-300"
-                    : "text-amber-200"
-                }`}
+                    : "text-amber-200")
+                }
               >
-                {saveStatus === "saved"
+                {saveStatus ===
+                "saved"
                   ? "Saved on this device"
-                  : saveStatus === "error"
+                  : saveStatus ===
+                    "error"
                   ? "Local save failed"
                   : "Saving progress…"}
               </p>
 
               <p className="mt-1 text-[10px] leading-5 text-slate-500">
                 {lastSavedAt
-                  ? `Last saved ${new Date(lastSavedAt).toLocaleTimeString(
+                  ? `Last saved ${new Date(
+                      lastSavedAt
+                    ).toLocaleTimeString(
                       "en-GB",
                       {
                         hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
+                        minute:
+                          "2-digit",
+                        second:
+                          "2-digit",
                       }
                     )}`
-                  : "Wait for confirmation before leaving."}
+                  : "Wait for saved confirmation before leaving."}
               </p>
             </div>
 
-            {saveStatus === "error" && (
+            {saveStatus ===
+              "error" && (
               <button
                 type="button"
                 onClick={() =>
-                  void persist(draft).catch((error) =>
-                    notify("error", errorText(error))
+                  void persist(
+                    draft
+                  ).catch(
+                    (error) =>
+                      notify(
+                        "error",
+                        errorText(
+                          error
+                        )
+                      )
                   )
                 }
                 className="min-h-10 rounded-lg border border-red-400/25 px-3 text-xs text-red-300"
@@ -1415,11 +1983,15 @@ export default function SupervisorTerminal() {
           {restored && (
             <div className="mt-3 flex items-start justify-between gap-3 border-t border-slate-800 pt-3">
               <p className="text-[11px] leading-5 text-slate-400">
-                Your previous workspace has been restored.
+                Your saved workspace has been restored.
               </p>
 
               <button
-                onClick={() => setRestored(false)}
+                onClick={() =>
+                  setRestored(
+                    false
+                  )
+                }
                 className="text-[11px] text-amber-300"
               >
                 Dismiss
@@ -1430,36 +2002,60 @@ export default function SupervisorTerminal() {
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-800 pt-3">
             <p className="text-[11px] text-slate-400">
               {syncing
-                ? "Uploading saved shifts…"
-                : `${pendingCount} pending upload${pendingCount === 1 ? "" : "s"}`}
+                ? "Uploading shifts…"
+                : `${pendingCount} pending upload${
+                    pendingCount ===
+                    1
+                      ? ""
+                      : "s"
+                  }`}
             </p>
 
             <button
               type="button"
-              disabled={!online || syncing}
-              onClick={() => void syncPending(true)}
+              disabled={
+                !online ||
+                syncing
+              }
+              onClick={() =>
+                void syncPending(
+                  true
+                )
+              }
               className="min-h-10 rounded-lg border border-slate-700 px-3 text-[11px] text-amber-300 disabled:opacity-40"
             >
-              {syncing ? "Syncing…" : "Sync now"}
+              {syncing
+                ? "Syncing…"
+                : "Sync now"}
             </button>
           </div>
-        </section>
+        </Card>
 
-        {message && (
+        {notice && (
           <div
-            role={message.type === "error" ? "alert" : "status"}
-            className={`mb-5 rounded-xl border p-4 text-xs leading-6 ${
-              message.type === "error"
+            role={
+              notice.type ===
+              "error"
+                ? "alert"
+                : "status"
+            }
+            className={
+              "mb-5 rounded-xl border p-4 text-xs leading-6 " +
+              (notice.type ===
+              "error"
                 ? "border-red-400/20 bg-red-400/5 text-red-300"
-                : message.type === "success"
+                : notice.type ===
+                  "success"
                 ? "border-emerald-400/20 bg-emerald-400/5 text-emerald-300"
-                : "border-slate-700 bg-slate-900 text-slate-300"
-            }`}
+                : "border-slate-700 bg-slate-900 text-slate-300")
+            }
           >
-            <p>{message.text}</p>
+            <p>{notice.text}</p>
 
             <button
-              onClick={() => setMessage(null)}
+              onClick={() =>
+                setNotice(null)
+              }
               className="mt-2 text-[10px] opacity-70"
             >
               Dismiss
@@ -1467,11 +2063,22 @@ export default function SupervisorTerminal() {
           </div>
         )}
 
-        {draft.stage === "OPENING" && (
-          <form onSubmit={openShift}>
-            <fieldset disabled={busy} className="min-w-0 space-y-5">
+        {draft.stage ===
+          "OPENING" && (
+          <form
+            onSubmit={openShift}
+          >
+            <fieldset
+              disabled={busy}
+              className="min-w-0 space-y-5"
+            >
               <Card>
-                <label htmlFor="supervisor" className={labelCls}>
+                <label
+                  htmlFor="supervisor"
+                  className={
+                    labelCls
+                  }
+                >
                   Supervisor name
                 </label>
 
@@ -1480,21 +2087,38 @@ export default function SupervisorTerminal() {
                   autoComplete="name"
                   maxLength={120}
                   required
-                  value={draft.supervisorName}
-                  onChange={(event) =>
-                    patchDraft({ supervisorName: event.target.value })
+                  value={
+                    draft.supervisorName
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    patchDraft({
+                      supervisorName:
+                        event.target
+                          .value,
+                    })
                   }
                   placeholder="Enter your full name"
-                  className={inputCls}
+                  className={
+                    inputCls
+                  }
                 />
               </Card>
 
-              {renderScanner(true)}
+              {renderScanner(
+                true
+              )}
 
               <Card>
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                   <div>
-                    <label htmlFor="price" className={labelCls}>
+                    <label
+                      htmlFor="price"
+                      className={
+                        labelCls
+                      }
+                    >
                       Fuel price · GHS / L
                     </label>
 
@@ -1502,14 +2126,26 @@ export default function SupervisorTerminal() {
                       id="price"
                       type="number"
                       min="0.01"
+                      max="1000000"
                       step="0.01"
                       inputMode="decimal"
                       required
-                      value={draft.fuelPrice}
-                      onChange={(event) =>
-                        patchDraft({ fuelPrice: event.target.value })
+                      value={
+                        draft.fuelPrice
                       }
-                      className={inputCls}
+                      onChange={(
+                        event
+                      ) =>
+                        patchDraft({
+                          fuelPrice:
+                            event
+                              .target
+                              .value,
+                        })
+                      }
+                      className={
+                        inputCls
+                      }
                     />
                   </div>
 
@@ -1524,25 +2160,37 @@ export default function SupervisorTerminal() {
 
                       <button
                         type="button"
-                        disabled={syncingMeter || !online}
-                        onClick={() => void syncOpeningMeter()}
+                        disabled={
+                          syncingMeter ||
+                          !online
+                        }
+                        onClick={() =>
+                          void resyncBaseline()
+                        }
                         className="text-[10px] text-amber-300 disabled:opacity-40"
                       >
-                        {syncingMeter ? "Syncing…" : "Resync"}
+                        {syncingMeter
+                          ? "Syncing…"
+                          : "Resync"}
                       </button>
                     </div>
 
                     <input
                       id="opening-meter"
                       readOnly
-                      value={draft.openingMeter}
-                      className={inputCls + " text-slate-400"}
+                      value={
+                        draft.openingMeter
+                      }
+                      className={
+                        inputCls +
+                        " text-slate-400"
+                      }
                       placeholder="Baseline required"
                     />
 
                     <p className="mt-2 text-[10px] leading-5 text-slate-500">
                       {draft.openingSource ||
-                        "Connect once to load your station baseline."}
+                        "Connect once to load the station baseline."}
                     </p>
                   </div>
                 </div>
@@ -1557,45 +2205,79 @@ export default function SupervisorTerminal() {
                   syncingMeter ||
                   !draft.baselineReady
                 }
-                className={primaryCls}
+                className={
+                  primaryCls
+                }
               >
-                {busy ? "Saving opening…" : "Lock opening & start shift"}
+                {busy
+                  ? "Saving opening…"
+                  : "Lock opening & start shift"}
               </button>
             </fieldset>
           </form>
         )}
 
-        {draft.stage === "CLOSING" && (
-          <form onSubmit={closeShift}>
-            <fieldset disabled={busy} className="min-w-0 space-y-5">
+        {draft.stage ===
+          "CLOSING" && (
+          <form
+            onSubmit={
+              closeShift
+            }
+          >
+            <fieldset
+              disabled={busy}
+              className="min-w-0 space-y-5"
+            >
               <Card>
-                <h3 className="text-sm font-semibold">Shift active</h3>
+                <h3 className="text-sm font-semibold">
+                  Shift active
+                </h3>
 
                 <dl className="mt-2 divide-y divide-slate-800">
-                  <Row label="Supervisor" value={draft.supervisorName} />
+                  <Row
+                    label="Supervisor"
+                    value={
+                      draft.supervisorName
+                    }
+                  />
 
                   <Row
                     label="Opened"
-                    value={draft.openedAt ? dateTime(draft.openedAt) : "—"}
+                    value={
+                      draft.openedAt
+                        ? dateTime(
+                            draft.openedAt
+                          )
+                        : "—"
+                    }
                   />
 
                   <Row
                     label="Opening meter"
-                    value={`${draft.openingMeter} L`}
+                    value={
+                      `${draft.openingMeter} L`
+                    }
                   />
                 </dl>
 
                 <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                  You may leave and return using this browser. Complete
-                  the remaining fields when the shift ends.
+                  You can leave and return using this browser.
+                  Complete the remaining fields at shift end.
                 </p>
               </Card>
 
-              {renderScanner(false)}
+              {renderScanner(
+                false
+              )}
 
               <Card className="space-y-5">
                 <div>
-                  <label htmlFor="closing-meter" className={labelCls}>
+                  <label
+                    htmlFor="closing-meter"
+                    className={
+                      labelCls
+                    }
+                  >
                     Closing meter · litres
                   </label>
 
@@ -1603,21 +2285,38 @@ export default function SupervisorTerminal() {
                     id="closing-meter"
                     type="number"
                     min="0"
+                    max="1000000000000"
                     step="any"
                     inputMode="decimal"
                     required
-                    value={draft.closingMeter}
-                    onChange={(event) =>
-                      patchDraft({ closingMeter: event.target.value })
+                    value={
+                      draft.closingMeter
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      patchDraft({
+                        closingMeter:
+                          event
+                            .target
+                            .value,
+                      })
                     }
                     placeholder="Enter closing reading"
-                    className={inputCls}
+                    className={
+                      inputCls
+                    }
                   />
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
-                    <label htmlFor="cash" className={labelCls}>
+                    <label
+                      htmlFor="cash"
+                      className={
+                        labelCls
+                      }
+                    >
                       Cash collected · GHS
                     </label>
 
@@ -1625,20 +2324,37 @@ export default function SupervisorTerminal() {
                       id="cash"
                       type="number"
                       min="0"
+                      max="1000000000000"
                       step="0.01"
                       inputMode="decimal"
                       required
-                      value={draft.cashCollected}
-                      onChange={(event) =>
-                        patchDraft({ cashCollected: event.target.value })
+                      value={
+                        draft.cashCollected
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        patchDraft({
+                          cashCollected:
+                            event
+                              .target
+                              .value,
+                        })
                       }
                       placeholder="0.00"
-                      className={inputCls}
+                      className={
+                        inputCls
+                      }
                     />
                   </div>
 
                   <div>
-                    <label htmlFor="momo" className={labelCls}>
+                    <label
+                      htmlFor="momo"
+                      className={
+                        labelCls
+                      }
+                    >
                       MoMo collected · GHS
                     </label>
 
@@ -1646,21 +2362,38 @@ export default function SupervisorTerminal() {
                       id="momo"
                       type="number"
                       min="0"
+                      max="1000000000000"
                       step="0.01"
                       inputMode="decimal"
                       required
-                      value={draft.momoCollected}
-                      onChange={(event) =>
-                        patchDraft({ momoCollected: event.target.value })
+                      value={
+                        draft.momoCollected
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        patchDraft({
+                          momoCollected:
+                            event
+                              .target
+                              .value,
+                        })
                       }
                       placeholder="0.00"
-                      className={inputCls}
+                      className={
+                        inputCls
+                      }
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label htmlFor="expenses" className={labelCls}>
+                  <label
+                    htmlFor="expenses"
+                    className={
+                      labelCls
+                    }
+                  >
                     Shift expenses · GHS
                   </label>
 
@@ -1668,28 +2401,47 @@ export default function SupervisorTerminal() {
                     id="expenses"
                     type="number"
                     min="0"
+                    max="1000000000000"
                     step="0.01"
                     inputMode="decimal"
-                    value={draft.expenses}
-                    onChange={(event) =>
-                      patchDraft({ expenses: event.target.value })
+                    value={
+                      draft.expenses
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      patchDraft({
+                        expenses:
+                          event
+                            .target
+                            .value,
+                      })
                     }
                     placeholder="0.00"
-                    className={inputCls}
+                    className={
+                      inputCls
+                    }
                   />
 
                   <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                    Enter expenses paid from shift takings. Cash should
-                    be the amount remaining after these expenses,
-                    excluding opening float or personal money.
+                    Expenses must be paid from shift takings.
+                    Cash means the amount remaining after those
+                    expenses, excluding opening float and personal
+                    money.
                   </p>
                 </div>
               </Card>
 
               <button
                 type="submit"
-                disabled={busy || scanning || cameraActive}
-                className={primaryCls}
+                disabled={
+                  busy ||
+                  scanning ||
+                  cameraActive
+                }
+                className={
+                  primaryCls
+                }
               >
                 {busy
                   ? "Saving shift…"
@@ -1701,171 +2453,308 @@ export default function SupervisorTerminal() {
           </form>
         )}
 
-        {draft.stage === "REPORT" && draft.report && (
-          <div className="space-y-5">
-            <section className="rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-400/10 to-slate-900 p-6">
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400">
-                  Shift completed
+        {draft.stage ===
+          "REPORT" &&
+          draft.report && (
+            <div className="space-y-5">
+              <section className="rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-400/10 to-slate-900 p-6">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400">
+                    Shift completed
+                  </p>
+
+                  <span
+                    className={
+                      "rounded-full px-2.5 py-1 text-[9px] " +
+                      (currentSynced
+                        ? "bg-emerald-400/10 text-emerald-300"
+                        : "bg-amber-400/10 text-amber-300")
+                    }
+                  >
+                    {currentSynced
+                      ? "Synced to Supabase"
+                      : "Pending upload"}
+                  </span>
+                </div>
+
+                <p className="mt-5 text-xs text-slate-400">
+                  Litres sold
                 </p>
 
-                <span
-                  className={`rounded-full px-2.5 py-1 text-[9px] ${
-                    currentSynced
-                      ? "bg-emerald-400/10 text-emerald-300"
-                      : "bg-amber-400/10 text-amber-300"
-                  }`}
-                >
-                  {currentSynced ? "Synced to Supabase" : "Pending upload"}
-                </span>
-              </div>
+                <p className="mt-1 break-all font-mono text-4xl text-amber-300 sm:text-5xl">
+                  {litresText(
+                    draft.report
+                      .litres
+                  )}
 
-              <p className="mt-5 text-xs text-slate-400">Litres sold</p>
-
-              <p className="mt-1 break-all font-mono text-4xl text-amber-300 sm:text-5xl">
-                {litresText(draft.report.litres)}
-                <span className="ml-2 text-lg text-slate-500">L</span>
-              </p>
-
-              <div className="mt-5 flex justify-between gap-3 border-t border-white/5 pt-4">
-                <span className="text-xs text-slate-400">
-                  Expected sales
-                </span>
-
-                <span className="font-semibold">
-                  {ghs(draft.report.expected)}
-                </span>
-              </div>
-            </section>
-
-            <Card>
-              <h3 className="text-sm font-semibold">Money breakdown and reconciliation</h3>
-
-              <dl className="mt-3 divide-y divide-slate-800">
-                <Row label="Supervisor" value={draft.report.supervisor} />
-                <Row label="Closed" value={dateTime(draft.report.closedAt)} />
-
-                <Row
-                  label="Meter readings"
-                  value={`${litresText(draft.report.openM)} → ${litresText(
-                    draft.report.closeM
-                  )} L`}
-                />
-
-                <Row label="Cash collected" value={ghs(draft.report.cash)} />
-                <Row label="MoMo collected" value={ghs(draft.report.momo)} />
-                <Row
-                  label="Collections subtotal: cash + MoMo"
-                  value={ghs(draft.report.cash + draft.report.momo)}
-                />
-                <Row label="Shift expenses" value={ghs(draft.report.expenses)} />
-
-                <Row
-                  label="Total accounted"
-                  value={ghs(draft.report.accounted)}
-                />
-              </dl>
-              <p className="mt-3 border-t border-slate-800 pt-3 text-[11px] leading-5 text-slate-500">
-                Total accounted = cash + MoMo + expenses paid from shift takings.
-                Cash must be the amount remaining after these expenses, excluding any opening float.
-              </p>
-            </Card>
-
-            <Card
-              className={
-                draft.report.variance < -0.005
-                  ? "border-red-400/25"
-                  : draft.report.variance > 0.005
-                  ? "border-amber-400/25"
-                  : "border-emerald-400/25"
-              }
-            >
-              <p className={labelCls}>Variance</p>
-
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="font-mono text-2xl">
-                  {draft.report.variance >= 0 ? "+" : "-"}
-                  {ghs(Math.abs(draft.report.variance))}
+                  <span className="ml-2 text-lg text-slate-500">
+                    L
+                  </span>
                 </p>
 
-                <span className="rounded-full bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-wider text-slate-300">
-                  {draft.report.variance < -0.005
-                    ? "Shortage"
-                    : draft.report.variance > 0.005
-                    ? "Overage"
-                    : "Balanced"}
-                </span>
-              </div>
-            </Card>
+                <div className="mt-5 flex justify-between gap-3 border-t border-white/5 pt-4">
+                  <span className="text-xs text-slate-400">
+                    Expected sales
+                  </span>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                disabled={exporting}
-                onClick={() => void exportReport(draft.report!, false)}
-                className={secondaryCls}
-              >
-                {exporting ? "Preparing…" : "Download PDF"}
-              </button>
+                  <span className="font-semibold">
+                    {ghs(
+                      draft.report
+                        .expected
+                    )}
+                  </span>
+                </div>
+              </section>
 
-              <button
-                type="button"
-                disabled={exporting}
-                onClick={() => void exportReport(draft.report!, true)}
-                className="min-h-12 rounded-xl bg-[#25D366] px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-50"
-              >
-                Share on WhatsApp
-              </button>
-            </div>
-
-            {!confirmNew ? (
-              <button
-                onClick={() => setConfirmNew(true)}
-                className={secondaryCls}
-              >
-                Start next shift
-              </button>
-            ) : (
               <Card>
                 <h3 className="text-sm font-semibold">
-                  Start the next shift?
+                  Money breakdown and reconciliation
                 </h3>
 
-                <p className="mt-2 text-xs leading-6 text-slate-400">
-                  The completed report remains in saved shifts. Pending
-                  uploads are retained, even if you are offline.
+                <dl className="mt-3 divide-y divide-slate-800">
+                  <Row
+                    label="Supervisor"
+                    value={
+                      draft.report
+                        .supervisor
+                    }
+                  />
+
+                  <Row
+                    label="Closed"
+                    value={dateTime(
+                      draft.report
+                        .closedAt
+                    )}
+                  />
+
+                  <Row
+                    label="Meter readings"
+                    value={
+                      `${litresText(
+                        draft.report
+                          .openM
+                      )} → ${litresText(
+                        draft.report
+                          .closeM
+                      )} L`
+                    }
+                  />
+
+                  <Row
+                    label="Cash collected"
+                    value={ghs(
+                      draft.report
+                        .cash
+                    )}
+                  />
+
+                  <Row
+                    label="MoMo collected"
+                    value={ghs(
+                      draft.report
+                        .momo
+                    )}
+                  />
+
+                  <Row
+                    label="Cash + MoMo"
+                    value={ghs(
+                      draft.report
+                        .cash +
+                        draft.report
+                          .momo
+                    )}
+                  />
+
+                  <Row
+                    label="Expenses"
+                    value={ghs(
+                      draft.report
+                        .expenses
+                    )}
+                  />
+
+                  <Row
+                    label="Total accounted"
+                    value={ghs(
+                      draft.report
+                        .accounted
+                    )}
+                  />
+                </dl>
+              </Card>
+
+              <Card
+                className={
+                  draft.report
+                    .variance <
+                  -0.005
+                    ? "border-red-400/25"
+                    : draft.report
+                        .variance >
+                      0.005
+                    ? "border-amber-400/25"
+                    : "border-emerald-400/25"
+                }
+              >
+                <p
+                  className={
+                    labelCls
+                  }
+                >
+                  Variance
                 </p>
 
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <button
-                    disabled={busy}
-                    onClick={() => setConfirmNew(false)}
-                    className={secondaryCls}
-                  >
-                    Keep report
-                  </button>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="font-mono text-2xl">
+                    {draft.report
+                      .variance >= 0
+                      ? "+"
+                      : "-"}
 
-                  <button
-                    disabled={busy}
-                    onClick={() => void newShift()}
-                    className={primaryCls}
-                  >
-                    {busy ? "Preparing…" : "Start next"}
-                  </button>
+                    {ghs(
+                      Math.abs(
+                        draft.report
+                          .variance
+                      )
+                    )}
+                  </p>
+
+                  <span className="rounded-full bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-wider text-slate-300">
+                    {draft.report
+                      .variance <
+                    -0.005
+                      ? "Shortage"
+                      : draft.report
+                          .variance >
+                        0.005
+                      ? "Overage"
+                      : "Balanced"}
+                  </span>
                 </div>
               </Card>
-            )}
-          </div>
-        )}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={
+                    exporting
+                  }
+                  onClick={() =>
+                    void exportReport(
+                      draft.report!,
+                      false
+                    )
+                  }
+                  className={
+                    secondaryCls
+                  }
+                >
+                  {exporting
+                    ? "Preparing…"
+                    : "Download PDF"}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    exporting
+                  }
+                  onClick={() =>
+                    void exportReport(
+                      draft.report!,
+                      true
+                    )
+                  }
+                  className="min-h-12 rounded-xl bg-[#25D366] px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-50"
+                >
+                  Share on WhatsApp
+                </button>
+              </div>
+
+              {!confirmNew ? (
+                <button
+                  onClick={() =>
+                    setConfirmNew(
+                      true
+                    )
+                  }
+                  className={
+                    secondaryCls
+                  }
+                >
+                  Start next shift
+                </button>
+              ) : (
+                <Card>
+                  <h3 className="text-sm font-semibold">
+                    Start the next shift?
+                  </h3>
+
+                  <p className="mt-2 text-xs leading-6 text-slate-400">
+                    This report and pending uploads remain saved.
+                    The next online opening uses the shared station reading.
+                    Offline work uses this device's previous closing.
+                  </p>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <button
+                      disabled={
+                        busy
+                      }
+                      onClick={() =>
+                        setConfirmNew(
+                          false
+                        )
+                      }
+                      className={
+                        secondaryCls
+                      }
+                    >
+                      Keep report
+                    </button>
+
+                    <button
+                      disabled={
+                        busy
+                      }
+                      onClick={() =>
+                        void newShift()
+                      }
+                      className={
+                        primaryCls
+                      }
+                    >
+                      {busy
+                        ? "Preparing…"
+                        : "Start next"}
+                    </button>
+                  </div>
+                </Card>
+              )}
+            </div>
+          )}
 
         <section className="mt-6">
           <button
             type="button"
-            onClick={() => setHistoryOpen(!historyOpen)}
-            className={secondaryCls}
+            onClick={() =>
+              setHistoryOpen(
+                !historyOpen
+              )
+            }
+            className={
+              secondaryCls
+            }
           >
-            {historyOpen ? "Hide saved shifts" : "View saved shifts"}
-            {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
+            {historyOpen
+              ? "Hide saved shifts"
+              : "View saved shifts"}
+
+            {pendingCount > 0
+              ? ` · ${pendingCount} pending`
+              : ""}
           </button>
 
           {historyOpen && (
@@ -1873,97 +2762,151 @@ export default function SupervisorTerminal() {
               {!records.length && (
                 <Card>
                   <p className="text-xs text-slate-400">
-                    No completed shifts saved on this device yet.
+                    No completed shifts saved on this device.
                   </p>
                 </Card>
               )}
 
-              {records.map((record) => (
-                <Card key={record.id}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold">
-                        {shiftReference(record.id)}
-                      </p>
+              {records.map(
+                (record) => (
+                  <Card
+                    key={
+                      record.id
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold">
+                          {shiftReference(
+                            record.id
+                          )}
+                        </p>
 
-                      <p className="mt-1 text-xs text-slate-400">
-                        {record.report.supervisor}
-                      </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {
+                            record
+                              .report
+                              .supervisor
+                          }
+                        </p>
 
-                      <p className="mt-1 text-[10px] text-slate-500">
-                        {dateTime(record.report.closedAt)}
-                      </p>
+                        <p className="mt-1 text-[10px] text-slate-500">
+                          {dateTime(
+                            record
+                              .report
+                              .closedAt
+                          )}
+                        </p>
+                      </div>
+
+                      <span
+                        className={
+                          "shrink-0 rounded-full px-2 py-1 text-[9px] " +
+                          (record.status ===
+                          "synced"
+                            ? "bg-emerald-400/10 text-emerald-300"
+                            : "bg-amber-400/10 text-amber-300")
+                        }
+                      >
+                        {record.status ===
+                        "synced"
+                          ? "Synced"
+                          : "Pending"}
+                      </span>
                     </div>
 
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-1 text-[9px] ${
-                        record.status === "synced"
-                          ? "bg-emerald-400/10 text-emerald-300"
-                          : "bg-amber-400/10 text-amber-300"
-                      }`}
-                    >
-                      {record.status === "synced" ? "Synced" : "Pending"}
-                    </span>
-                  </div>
+                    {record.lastError &&
+                      record.status ===
+                        "pending" && (
+                        <p className="mt-3 break-words rounded-lg bg-red-400/5 p-3 text-[11px] leading-5 text-red-300">
+                          Upload error:{" "}
+                          {
+                            record.lastError
+                          }
+                        </p>
+                      )}
 
-                  {record.lastError && record.status === "pending" && (
-                    <p className="mt-3 break-words rounded-lg bg-red-400/5 p-3 text-[11px] leading-5 text-red-300">
-                      Upload error: {record.lastError}
-                    </p>
-                  )}
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        disabled={
+                          exporting
+                        }
+                        onClick={() =>
+                          void exportReport(
+                            record.report,
+                            false
+                          )
+                        }
+                        className={
+                          secondaryCls
+                        }
+                      >
+                        Download PDF
+                      </button>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
-                      disabled={exporting}
-                      onClick={() =>
-                        void exportReport(record.report, false)
-                      }
-                      className={secondaryCls}
-                    >
-                      Download PDF
-                    </button>
-
-                    <button
-                      disabled={exporting}
-                      onClick={() =>
-                        void exportReport(record.report, true)
-                      }
-                      className={secondaryCls}
-                    >
-                      Share
-                    </button>
-                  </div>
-                </Card>
-              ))}
+                      <button
+                        disabled={
+                          exporting
+                        }
+                        onClick={() =>
+                          void exportReport(
+                            record.report,
+                            true
+                          )
+                        }
+                        className={
+                          secondaryCls
+                        }
+                      >
+                        Share
+                      </button>
+                    </div>
+                  </Card>
+                )
+              )}
             </div>
           )}
         </section>
 
-        <section className="mt-5 rounded-2xl border border-slate-800 p-4">
-          <p className="text-xs font-medium text-slate-300">
-            {offlineStatus === "prepared"
+        <Card className="mt-5">
+          <p className="text-xs font-medium">
+            {offlineStatus ===
+            "prepared"
               ? "Offline app files prepared"
-              : offlineStatus === "preparing"
-              ? "Preparing offline app files…"
-              : "Offline reopening needs preparation"}
+              : offlineStatus ===
+                "preparing"
+              ? "Preparing offline files…"
+              : "Offline setup"}
           </p>
 
           <p className="mt-1 text-[10px] leading-5 text-slate-500">
             {offlineDetail ||
-              "Open the production app online once and prepare its files before relying on offline reopening."}
+              "Prepare online before relying on offline reopening. Existing cached files are not checked by this label."}
           </p>
 
           <button
             type="button"
-            disabled={!online || offlineStatus === "preparing"}
-            onClick={() => void prepareOffline(true)}
-            className={secondaryCls + " mt-3"}
+            disabled={
+              !online ||
+              offlineStatus ===
+                "preparing"
+            }
+            onClick={() =>
+              void prepareOffline(
+                true
+              )
+            }
+            className={
+              secondaryCls +
+              " mt-3"
+            }
           >
-            {offlineStatus === "preparing"
+            {offlineStatus ===
+            "preparing"
               ? "Preparing…"
               : "Prepare / refresh offline files"}
           </button>
-        </section>
+        </Card>
 
         <footer className="mt-7 border-t border-slate-800 pt-5 text-center">
           <p className="text-[9px] uppercase tracking-[0.18em] text-slate-600">
