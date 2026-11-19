@@ -1,0 +1,33 @@
+name: Verify build
+on:
+  push:
+    branches: [main, owner-auth-security, supervisor-rebuild]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_SUPABASE_URL: https://build-check.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-check-placeholder-not-a-real-key
+      SUPABASE_SERVICE_ROLE_KEY: build-check-placeholder-not-a-real-secret
+      OWNER_EMAIL: build-check@example.invalid
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Check TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        run: npm run build
