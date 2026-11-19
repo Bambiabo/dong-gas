@@ -1,343 +1,131 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 
-type Shift = {
-  id: string;
-  created_at: string;
-  supervisor_name?: string | null;
-  opening_meter?: number | null;
-  closing_meter?: number | null;
-  fuel_price?: number | null;
-  cash_collected?: number | null;
-  momo_collected?: number | null;
-  expenses?: number | null;
-  proof_image?: string | null;
-};
+type Shift = { id: string; created_at: string; supervisor_name?: string; opening_meter?: number | string; closing_meter?: number | string; cash_collected?: number | string; momo_collected?: number | string; expenses?: number | string; variance?: number | string; proof_image?: string; opening_proof_image?: string };
+const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+const input = 'w-full rounded-xl border border-slate-700 bg-slate-950 p-3';
+const button = 'rounded-xl bg-cyan-700 px-4 py-3 disabled:opacity-50';
 
 export default function OwnerDashboard() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
-  const [factorId, setFactorId] = useState<string | null>(null);
-  const [qrCode, setQrCode] = useState<string | null>(null);
-  const [session, setSession] = useState<any>(null);
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [baseline, setBaseline] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
+  const [code, setCode] = useState('');
+  const [factor, setFactor] = useState<string | null>(null);
+  const [qr, setQr] = useState('');
+  const [secret, setSecret] = useState('');
+  const [session, setSession] = useState<Session | null>(null);
+  const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [search, setSearch] = useState('');
+  const [days, setDays] = useState('7');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [baseline, setBaseline] = useState('');
 
-  async function loadDashboard(activeSession: any) {
-    setLoading(true);
-    setError('');
+  async function run(task: () => Promise<void>) {
+    setBusy(true); setError(''); setMessage('');
+    try { await task(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Request failed. Please retry.'); }
+    finally { setBusy(false); }
+  }
 
-    const response = await fetch('/api/owner/shifts', {
-      headers: {
-        Authorization: `Bearer ${activeSession.access_token}`,
-      },
-    });
+  async function freshSession() {
+    const result = await supabase.auth.getSession();
+    if (result.error) throw result.error;
+    if (!result.data.session) throw new Error('Session expired. Please sign in again.');
+    return result.data.session;
+  }
 
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      setError(result.error || 'Unable to load owner data.');
-      setSession(null);
-      setLoading(false);
-      return;
-    }
-
+  async function loadDashboard(active: Session) {
+    const response = await fetch('/api/owner/shifts', { cache: 'no-store', headers: { Authorization: `Bearer ${active.access_token}` } });
     const result = await response.json();
-    setShifts(result.shifts || []);
-    setSession(activeSession);
-    setLoading(false);
+    if (!response.ok) { setSession(null); setShifts([]); throw new Error(result.error || 'Unable to load owner records.'); }
+    setShifts(result.shifts ?? []); setSession(active);
+    setFactor(null); setQr(''); setSecret(''); setCode('');
+  }
+
+  async function continueSession(active: Session) {
+    const assurance = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (assurance.error) throw assurance.error;
+    if (assurance.data.currentLevel === 'aal2') { await loadDashboard(active); return; }
+    setSession(null); setShifts([]);
+    const factors = await supabase.auth.mfa.listFactors();
+    if (factors.error) throw factors.error;
+    const verified = factors.data.totp.find(item => item.status === 'verified');
+    if (verified) { setFactor(verified.id); setQr(''); setSecret(''); return; }
+    const pending = factors.data.totp.filter(item => item.status === 'unverified');
+    if (pending.length) throw new Error('Authenticator setup was interrupted. Complete or remove the pending enrollment through Supabase account support before retrying. No factors were deleted.');
+    const enrollment = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Dong Gas Owner' });
+    if (enrollment.error) throw enrollment.error;
+    setFactor(enrollment.data.id); setQr(enrollment.data.totp.qr_code); setSecret(enrollment.data.totp.secret);
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (data.session) {
-        await loadDashboard(data.session);
-      } else {
-        setLoading(false);
-      }
+    void run(async () => {
+      const result = await supabase.auth.getSession();
+      if (result.error) throw result.error;
+      if (result.data.session) await continueSession(result.data.session);
     });
+    const { data } = supabase.auth.onAuthStateChange(event => {
+      if (event === 'SIGNED_OUT') { setSession(null); setShifts([]); setFactor(null); setQr(''); setSecret(''); setPhoto(null); }
+    });
+    return () => data.subscription.unsubscribe();
+    // Initialization runs once; authorization is independently checked by each API.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleSignIn(event: React.FormEvent) {
+  function signIn(event: FormEvent) {
     event.preventDefault();
-    setError('');
-    setMessage('');
-    setLoading(true);
-
-    const { data, error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    void run(async () => {
+      const result = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      setPassword('');
+      if (result.error) throw result.error;
+      await continueSession(result.data.session);
     });
-
-    if (signInError || !data.session) {
-      setError(signInError?.message || 'Unable to sign in.');
-      setLoading(false);
-      return;
-    }
-
-    const { data: factorData } = await supabase.auth.mfa.listFactors();
-    const verifiedFactor = factorData?.all?.find((factor) => factor.status === 'verified');
-
-    if (verifiedFactor) {
-      const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
-        factorId: verifiedFactor.id,
-      });
-
-      if (challengeError || !challengeData) {
-        setError(challengeError?.message || 'Unable to start verification.');
-        setLoading(false);
-        return;
-      }
-
-      setFactorId(challengeData.id);
-      setLoading(false);
-      return;
-    }
-
-    const { data: enrollData, error: enrollError } = await supabase.auth.mfa.enroll({
-      factorType: 'totp',
-    });
-
-    if (enrollError || !enrollData) {
-      setError(enrollError?.message || 'Unable to start authenticator setup.');
-      setLoading(false);
-      return;
-    }
-
-    setFactorId(enrollData.id);
-    setQrCode(enrollData.totp?.qr_code || null);
-    setLoading(false);
   }
 
-  async function handleVerify(event: React.FormEvent) {
+  function verify(event: FormEvent) {
     event.preventDefault();
-    setError('');
-
-    if (!factorId) {
-      setError('No verification challenge is active.');
-      return;
-    }
-
-    const { data, error: verifyError } = await supabase.auth.mfa.verify({
-      factorId,
-      code: verificationCode,
+    void run(async () => {
+      if (!factor || !/^\d{6}$/.test(code)) throw new Error('Enter the six-digit code from your authenticator.');
+      const result = await supabase.auth.mfa.challengeAndVerify({ factorId: factor, code });
+      if (result.error) throw result.error;
+      const active = await freshSession();
+      const assurance = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (assurance.error || assurance.data?.currentLevel !== 'aal2') throw new Error('Verification was not completed. Please retry.');
+      await loadDashboard(active);
     });
-
-    if (verifyError || !data) {
-      setError(verifyError?.message || 'Invalid verification code.');
-      return;
-    }
-
-    setVerificationCode('');
-    setFactorId(null);
-    setQrCode(null);
-    await loadDashboard(data.session ?? (await supabase.auth.getSession()).data.session);
   }
 
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    setSession(null);
-    setShifts([]);
+  function signOut() {
+    setSession(null); setShifts([]); setFactor(null); setQr(''); setSecret(''); setPhoto(null); setCode(''); setPassword('');
+    void run(async () => { const result = await supabase.auth.signOut({ scope: 'local' }); if (result.error) throw result.error; });
   }
 
-  async function updateBaseline(event: React.FormEvent) {
+  function updateBaseline(event: FormEvent) {
     event.preventDefault();
-    setError('');
-    setMessage('');
-
-    const response = await fetch('/api/owner/baseline', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ baselineMeter: baseline }),
+    if (!baseline.trim() || !Number.isFinite(Number(baseline)) || Number(baseline) < 0) { setError('Enter a non-negative meter value.'); return; }
+    if (!window.confirm(`Request baseline correction to ${baseline}? Only continue after verifying the meter and checking for active shifts.`)) return;
+    void run(async () => {
+      const active = await freshSession();
+      const response = await fetch('/api/owner/baseline', { method: 'POST', headers: { Authorization: `Bearer ${active.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ baselineMeter: Number(baseline) }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Baseline update failed.');
+      setMessage(`Baseline updated to ${result.baselineMeter}.`); setBaseline('');
     });
-
-    const result = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      setError(result.error || 'Unable to update baseline.');
-      return;
-    }
-
-    setMessage(`Baseline updated to ${result.baselineMeter} L.`);
-    setBaseline('');
   }
 
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
-        <p>Loading owner portal…</p>
-      </main>
-    );
-  }
+  const visible = shifts.filter(shift => (shift.supervisor_name || '').toLowerCase().includes(search.toLowerCase()) && (days === 'all' || new Date(shift.created_at).getTime() >= Date.now() - Number(days) * 86400000));
+  const cash = visible.reduce((sum, shift) => sum + number(shift.cash_collected), 0);
+  const momo = visible.reduce((sum, shift) => sum + number(shift.momo_collected), 0);
+  const volume = visible.reduce((sum, shift) => sum + Math.max(0, number(shift.closing_meter) - number(shift.opening_meter)), 0);
+  const notices = <div aria-live="polite">{busy && <p role="status">Working…</p>}{error && <p role="alert" className="text-rose-300">{error}</p>}{message && <p className="text-emerald-300">{message}</p>}</div>;
 
-  if (!session) {
-    return (
-      <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
-        <div className="w-full max-w-sm space-y-5 rounded-3xl border border-slate-800 bg-slate-900 p-8">
-          <h1 className="text-center text-xl font-bold">Owner Portal</h1>
+  if (!session) return <main className="min-h-screen bg-slate-950 p-5 text-white flex items-center justify-center"><section className="w-full max-w-md space-y-5 rounded-3xl border border-slate-700 p-6"><h1 className="text-2xl font-bold">Owner Portal</h1><p className="text-sm text-slate-300">Security preview · Email, password and authenticator</p>{factor ? <form onSubmit={verify} className="space-y-4">{qr && <><p>Scan with your authenticator, or enter the setup key manually. Keep this key private.</p><img src={qr} alt="Private authenticator setup QR code" className="mx-auto bg-white p-2"/><details><summary>Manual setup key</summary><code className="break-all">{secret}</code></details></>}<label className="block">Authenticator code<input className={input} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} required/></label><button className={button} disabled={busy}>Verify and continue</button></form> : <form onSubmit={signIn} className="space-y-4"><label className="block">Email<input className={input} type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required/></label><label className="block">Password<input className={input} type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required/></label><button className={button} disabled={busy}>Sign in</button></form>}{notices}<div className="flex gap-3"><button className={button} disabled={busy} onClick={() => void run(async () => continueSession(await freshSession()))}>Retry session</button><button className={button} disabled={busy} onClick={signOut}>Sign out / start again</button></div></section></main>;
 
-          {!factorId ? (
-            <form onSubmit={handleSignIn} className="space-y-4">
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="Owner email"
-                required
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3.5"
-              />
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Password"
-                required
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3.5"
-              />
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-cyan-600 py-3.5 font-semibold"
-              >
-                Sign in
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerify} className="space-y-4">
-              {qrCode && (
-                <div className="space-y-2 text-center">
-                  <p className="text-sm text-slate-300">
-                    Scan this QR code with your authenticator app.
-                  </p>
-                  <img src={qrCode} alt="Authenticator QR code" className="mx-auto rounded-xl bg-white p-2" />
-                </div>
-              )}
-              <input
-                inputMode="numeric"
-                value={verificationCode}
-                onChange={(event) => setVerificationCode(event.target.value)}
-                placeholder="6-digit authenticator code"
-                required
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3.5 text-center tracking-widest"
-              />
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-cyan-600 py-3.5 font-semibold"
-              >
-                Verify
-              </button>
-            </form>
-          )}
-
-          {error && <p className="text-sm text-rose-400">{error}</p>}
-          {message && <p className="text-sm text-emerald-400">{message}</p>}
-        </div>
-      </main>
-    );
-  }
-
-  const totalCash = shifts.reduce((total, shift) => total + (shift.cash_collected || 0), 0);
-  const totalMomo = shifts.reduce((total, shift) => total + (shift.momo_collected || 0), 0);
-
-  return (
-    <main className="mx-auto min-h-screen max-w-7xl space-y-8 bg-slate-950 p-6 text-white md:p-10">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-6">
-        <div>
-          <h1 className="text-2xl font-extrabold md:text-3xl">Owner Financial Audit</h1>
-          <p className="text-sm text-slate-400">Secure operational oversight and shift reconciliations.</p>
-        </div>
-        <button
-          onClick={handleSignOut}
-          className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-sm text-rose-400"
-        >
-          Sign out
-        </button>
-      </header>
-
-      <section className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <p className="text-xs uppercase tracking-wider text-slate-400">Cash collected</p>
-          <p className="mt-1 text-2xl font-black text-emerald-400">
-            ₵{totalCash.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <p className="text-xs uppercase tracking-wider text-slate-400">MoMo collected</p>
-          <p className="mt-1 text-2xl font-black text-blue-400">
-            ₵{totalMomo.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-          </p>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-        <h2 className="text-sm font-bold text-cyan-400">Reset pump baseline</h2>
-        <p className="mt-1 text-xs text-slate-400">
-          Use only when a verified correction is required. This is protected by owner sign-in and MFA.
-        </p>
-        <form onSubmit={updateBaseline} className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <input
-            type="number"
-            value={baseline}
-            onChange={(event) => setBaseline(event.target.value)}
-            placeholder="New baseline meter"
-            required
-            className="flex-1 rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-cyan-300"
-          />
-          <button type="submit" className="rounded-xl bg-cyan-600 px-5 py-3 font-semibold">
-            Update baseline
-          </button>
-        </form>
-      </section>
-
-      <section className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/80">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-800 bg-slate-950 text-xs uppercase text-slate-400">
-            <tr>
-              <th className="p-4">Date</th>
-              <th className="p-4">Supervisor</th>
-              <th className="p-4">Litres</th>
-              <th className="p-4">Cash</th>
-              <th className="p-4">MoMo</th>
-              <th className="p-4">Proof</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shifts.map((shift) => (
-              <tr key={shift.id} className="border-b border-slate-800/60">
-                <td className="p-4 text-xs text-cyan-400">
-                  {new Date(shift.created_at).toLocaleString()}
-                </td>
-                <td className="p-4">{shift.supervisor_name || 'Supervisor'}</td>
-                <td className="p-4">
-                  {Math.max(0, (shift.closing_meter || 0) - (shift.opening_meter || 0)).toLocaleString()} L
-                </td>
-                <td className="p-4">₵{(shift.cash_collected || 0).toFixed(2)}</td>
-                <td className="p-4">₵{(shift.momo_collected || 0).toFixed(2)}</td>
-                <td className="p-4">
-                  {shift.proof_image ? 'Available' : 'None'}
-                </td>
-              </tr>
-            ))}
-            {shifts.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-10 text-center text-slate-500">
-                  No shift records found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
-
-      {error && <p className="text-sm text-rose-400">{error}</p>}
-      {message && <p className="text-sm text-emerald-400">{message}</p>}
-    </main>
-  );
+  return <main className="min-h-screen bg-slate-950 p-5 text-white space-y-6 print:bg-white print:text-black"><header><h1 className="text-2xl font-bold">Owner Financial Audit</h1><p>Security preview — not approved for production</p><div className="flex flex-wrap gap-3 mt-4 print:hidden"><button className={button} disabled={busy} onClick={() => void run(async () => continueSession(await freshSession()))}>Refresh</button><button className={button} onClick={() => window.print()}>Print report</button><button className={button} disabled={busy} onClick={signOut}>Sign out</button></div></header>{notices}<section className="flex flex-wrap gap-4 print:hidden"><label>Supervisor search<input className={input} value={search} onChange={event => setSearch(event.target.value)}/></label><label>Period<select className={input} value={days} onChange={event => setDays(event.target.value)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="all">All time</option></select></label></section><section className="grid gap-3 sm:grid-cols-4">{[['Total collected', cash + momo], ['Cash', cash], ['MoMo', momo], ['Meter volume', volume]].map(([label, value]) => <div className="rounded-xl border p-4" key={String(label)}><h2>{label}</h2><p className="text-xl">{number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div>)}</section><section className="overflow-x-auto"><table className="w-full text-left"><thead><tr>{['Date', 'Supervisor', 'Meter volume', 'Cash GHS', 'MoMo GHS', 'Expenses GHS', 'Recorded variance GHS', 'Proof'].map(title => <th className="p-3" key={title}>{title}</th>)}</tr></thead><tbody>{visible.map(shift => <tr key={shift.id} className="border-t"><td className="p-3">{new Date(shift.created_at).toLocaleString()}</td><td className="p-3">{shift.supervisor_name || 'Supervisor'}</td><td className="p-3">{Math.max(0, number(shift.closing_meter) - number(shift.opening_meter)).toFixed(2)}</td>{[shift.cash_collected, shift.momo_collected, shift.expenses].map((value, index) => <td className="p-3" key={index}>{number(value).toFixed(2)}</td>)}<td className="p-3">{shift.variance == null ? 'Not recorded' : number(shift.variance).toFixed(2)}</td><td className="p-3">{[shift.opening_proof_image, shift.proof_image].map((url, index) => url ? <button key={index} className="underline mr-3" onClick={() => setPhoto(url)}>{index === 0 ? 'Opening' : 'Closing'}</button> : null)}</td></tr>)}</tbody></table>{!visible.length && <p className="p-5">No records match these filters.</p>}</section><details className="print:hidden"><summary>Verified baseline correction</summary><p>Do not use during an active shift. Audit and concurrency safeguards still need testing.</p><form onSubmit={updateBaseline} className="space-y-3 mt-3"><label>New meter baseline<input className={input} type="number" min="0" step="any" value={baseline} onChange={event => setBaseline(event.target.value)} required/></label><button className={button} disabled={busy}>Review correction</button></form></details>{photo && <div role="dialog" aria-modal="true" aria-label="Meter proof" className="fixed inset-0 bg-slate-950 p-6 overflow-auto print:hidden"><button className={button} autoFocus onClick={() => setPhoto(null)}>Close photo</button><img src={photo} alt="Shift meter proof" className="mx-auto max-h-screen max-w-full mt-4"/></div>}</main>;
 }
