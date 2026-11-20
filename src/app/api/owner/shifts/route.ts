@@ -1,10 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { OWNER_PIN_COOKIE, verifySessionToken } from '@/lib/owner-pin';
 
 const headers = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Cookie' };
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const token = request.cookies.get(OWNER_PIN_COOKIE)?.value;
   if (!verifySessionToken(token)) {
     return NextResponse.json({ error: 'Owner PIN verification required.' }, { status: 401, headers });
