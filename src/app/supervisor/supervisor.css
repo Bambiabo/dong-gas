@@ -1,0 +1,29 @@
+.supervisor-workspace { color-scheme: dark; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.supervisor-workspace main { min-height: 100dvh; max-width: 100%; padding: clamp(1rem, 3vw, 2.5rem); background: #08111f; color: #e2e8f0; }
+.supervisor-workspace main > div { max-width: 62rem; margin-inline: auto; }
+.supervisor-workspace h1 { font-size: clamp(1.75rem, 5vw, 2.5rem); font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
+.supervisor-workspace h2 { font-size: clamp(1.15rem, 3vw, 1.4rem); font-weight: 700; line-height: 1.3; }
+.supervisor-workspace h3 { font-size: 1rem; font-weight: 700; }
+.supervisor-workspace p { line-height: 1.6; }
+.supervisor-workspace :is(button, input, select, summary):focus-visible { outline: 4px solid #fbbf24; outline-offset: 3px; }
+.supervisor-workspace :is(input, select) { min-height: 3.25rem; max-width: 100%; font-size: 1.05rem; background: #0f172a; color: #f8fafc; border: 2px solid #475569; border-radius: .8rem; padding: .85rem; }
+.supervisor-workspace label { display: block; min-width: 0; font-size: 1rem; font-weight: 600; color: #e2e8f0; }
+.supervisor-workspace button { min-height: 3.25rem; padding: .85rem 1.25rem; border: 2px solid #475569; border-radius: .8rem; font-size: 1rem; font-weight: 700; cursor: pointer; }
+.supervisor-workspace button:hover:not(:disabled) { border-color: #fbbf24; }
+.supervisor-workspace button:disabled { cursor: not-allowed; opacity: .55; }
+.supervisor-workspace section { border: 1px solid #334155; border-radius: 1.25rem; background: #0f1d30; padding: clamp(1.1rem, 3vw, 1.75rem); }
+.supervisor-workspace section h2 { margin-bottom: 1.25rem; }
+.supervisor-workspace .grid { display: grid; gap: 1.25rem; }
+.supervisor-workspace ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; padding: 0; margin: 0; list-style: none; }
+.supervisor-workspace ol li { min-height: 4.5rem; padding: 1rem; border: 2px solid #334155; border-radius: 1rem; font-weight: 700; }
+.supervisor-workspace ol li[aria-current=step] { border-color: #fbbf24; background: #422006; color: #fde68a; }
+.supervisor-workspace .flex { display: flex; flex-wrap: wrap; gap: .75rem; }
+.supervisor-workspace .flex button { flex: 1 1 auto; }
+.supervisor-workspace img { max-width: 100%; border-radius: .8rem; object-fit: contain; }
+.supervisor-workspace [role=status], .supervisor-workspace [role=alert] { padding: 1.15rem; border-radius: 1rem; border: 2px solid #475569; }
+.supervisor-workspace [role=alert] { border-color: #fb7185; background: #3f1526; color: #ffe4e6; }
+.supervisor-workspace details { padding: 1.25rem; border: 1px solid #334155; border-radius: 1rem; }
+.supervisor-workspace summary { min-height: 3rem; display: flex; align-items: center; cursor: pointer; font-weight: 700; }
+@media (max-width: 640px) { .supervisor-workspace main > div { padding: 0; } .supervisor-workspace header { display: block; } .supervisor-workspace header a { display: block; margin-top: 1rem; } .supervisor-workspace .grid { gap: 1rem; } .supervisor-workspace ol li { font-size: .95rem; padding: .75rem; } .supervisor-workspace .flex button { width: 100%; } .supervisor-workspace table, .supervisor-workspace dl { width: 100%; } }
+@media (prefers-reduced-motion: no-preference) { .supervisor-workspace :is(button, a) { transition: border-color .15s ease, background-color .15s ease; } }
+@media print { .supervisor-workspace { color-scheme: light; } .supervisor-workspace main, .supervisor-workspace section { background: white !important; color: black !important; border: 0 !important; } .supervisor-workspace :is(h1, h2, h3, p, dt, dd, li) { color: black !important; } .supervisor-workspace button, .supervisor-workspace details { display: none !important; } }
