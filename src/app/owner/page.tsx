@@ -51,7 +51,7 @@ export default function OwnerDashboard() {
       if (factors.error) throw factors.error;
       const verified = factors.data.totp.find(item => item.status === 'verified');
       if (verified) { setFactor(verified.id); return; }
-      if (factors.data.totp.some(item => item.status === 'unverified')) throw new Error('Authenticator setup is pending. Contact account support to recover the enrollment. No factors were deleted.');
+      if (factors.data.totp.some(item => item.status !== 'verified')) throw new Error('Authenticator setup is pending. Contact account support to recover the enrollment. No factors were deleted.');
       const result = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Dong Gas Owner' });
       if (result.error) throw result.error;
       setFactor(result.data.id); setQr(result.data.totp.qr_code); setSecret(result.data.totp.secret);
