@@ -1,14 +1,20 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedOwner } from '@/lib/owner-auth';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
+import { OWNER_PIN_COOKIE, verifySessionToken } from '@/lib/owner-pin';
 
-const headers = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Authorization' };
+const headers = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Cookie' };
 
 export async function GET(request: Request) {
-  const { owner, error } = await getAuthenticatedOwner(request);
-  if (!owner) return NextResponse.json({ error }, { status: 401, headers });
+  const token = request.cookies.get(OWNER_PIN_COOKIE)?.value;
+  if (!verifySessionToken(token)) {
+    return NextResponse.json({ error: 'Owner PIN verification required.' }, { status: 401, headers });
+  }
+
   try {
-    const { data, error: failure } = await getSupabaseAdmin().from('shifts').select('*').order('created_at', { ascending: false });
+    const { data, error: failure } = await getSupabaseAdmin()
+      .from('shifts')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (failure) return NextResponse.json({ error: 'Unable to load shift records.' }, { status: 500, headers });
     return NextResponse.json({ shifts: data ?? [] }, { headers });
   } catch {
