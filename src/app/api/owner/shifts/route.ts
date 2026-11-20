@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getAuthenticatedOwner } from '@/lib/owner-auth';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 
-export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Authorization' };
 
 export async function GET(request: Request) {
