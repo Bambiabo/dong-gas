@@ -26,9 +26,7 @@ export default function SupervisorWorkspace() {
   const [busy, setBusy] = useState(false);
   const [cameraFor, setCameraFor] = useState<"opening" | "closing" | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
-  const [pendingImage, setPendingImage] = useState("");
-  const [reading, setReading] = useState("");
-  const [readingBusy, setReadingBusy] = useState(false);
+  const [captured, setCaptured] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -38,8 +36,7 @@ export default function SupervisorWorkspace() {
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraFor(null);
     setCameraReady(false);
-    setPendingImage("");
-    setReading("");
+    setCaptured(false);
   }, []);
 
   useEffect(() => {
@@ -125,18 +122,7 @@ export default function SupervisorWorkspace() {
     setDraft((current) => (current ? { ...current, ...change, updatedAt: new Date().toISOString() } : current));
   }
 
-  async function readMeter(image: string): Promise<string> {
-    const response = await fetch("/api/ocr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image }),
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Could not read the meter clearly. Retake the photo.");
-    return String(result.digits ?? "");
-  }
-
-  async function capture() {
+  function capture() {
     if (!draft || !cameraFor || !videoRef.current || !cameraReady) return;
     const video = videoRef.current;
     if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
@@ -144,34 +130,24 @@ export default function SupervisorWorkspace() {
       return;
     }
 
-    setReadingBusy(true);
-    setNotice("");
-    try {
-      const canvas = document.createElement("canvas");
-      const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
-      canvas.width = Math.round(video.videoWidth * scale);
-      canvas.height = Math.round(video.videoHeight * scale);
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("Camera is not ready.");
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const image = canvas.toDataURL("image/jpeg", 0.9);
-      setPendingImage(image);
-      const digits = await readMeter(image);
-      setReading(digits);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not read the meter. Retake the photo.");
-    } finally {
-      setReadingBusy(false);
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setNotice("Camera is not ready.");
+      return;
     }
-  }
 
-  function acceptReading() {
-    if (!draft || !cameraFor || !reading || !pendingImage) return;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const image = canvas.toDataURL("image/jpeg", 0.9);
     patch(cameraFor === "opening"
-      ? { openingImage: pendingImage, openingMeter: reading }
-      : { closingImage: pendingImage, closingMeter: reading });
+      ? { openingImage: image }
+      : { closingImage: image });
+    setCaptured(true);
+    setNotice("Photo captured.");
     stopCamera();
-    setNotice("Meter reading accepted.");
   }
 
   async function openShift(event: FormEvent) {
@@ -297,13 +273,10 @@ export default function SupervisorWorkspace() {
           <form onSubmit={openShift} className="space-y-4">
             <label className="block text-sm">Supervisor name<input className={input} required value={draft.supervisorName} onChange={(event) => patch({ supervisorName: event.target.value })} /></label>
             <label className="block text-sm">Fuel price · GHS per litre<input className={input} inputMode="decimal" required value={draft.fuelPrice} onChange={(event) => patch({ fuelPrice: event.target.value })} /></label>
-            <div className="rounded-xl border border-slate-700 p-4">
-              <p className="text-sm text-slate-400">Opening meter</p>
-              <p className="text-3xl font-bold text-amber-300">{draft.openingMeter || "Not ready"}</p>
-            </div>
+            <label className="block text-sm">Opening meter · litres<input className={input} inputMode="decimal" required value={draft.openingMeter} onChange={(event) => patch({ openingMeter: event.target.value })} /></label>
             <div className="rounded-xl border border-slate-700 p-4">
               <p className="text-sm">Opening meter photo</p>
-              <button className={primary} type="button" onClick={() => { setReading(""); setPendingImage(""); setCameraFor("opening"); }}>Open camera</button>
+              <button className={primary} type="button" onClick={() => { setCaptured(false); setCameraFor("opening"); }}>Open camera</button>
               {draft.openingImage && <p className="mt-2 text-sm text-emerald-300">Opening photo captured.</p>}
             </div>
             <button className={primary} disabled={busy}>Start shift</button>
@@ -316,12 +289,12 @@ export default function SupervisorWorkspace() {
               <p className="text-sm text-slate-400">Opening meter</p>
               <p className="text-2xl font-bold">{draft.openingMeter} L</p>
             </div>
+            <label className="block text-sm">Closing meter · litres<input className={input} inputMode="decimal" required value={draft.closingMeter} onChange={(event) => patch({ closingMeter: event.target.value })} /></label>
             <div className="rounded-xl border border-slate-700 p-4">
               <p className="text-sm">Closing meter photo</p>
-              <button className={primary} type="button" onClick={() => { setReading(""); setPendingImage(""); setCameraFor("closing"); }}>Open camera</button>
+              <button className={primary} type="button" onClick={() => { setCaptured(false); setCameraFor("closing"); }}>Open camera</button>
               {draft.closingImage && <p className="mt-2 text-sm text-emerald-300">Closing photo captured.</p>}
             </div>
-            <label className="block text-sm">Closing meter · litres<input className={input} inputMode="decimal" required value={draft.closingMeter} onChange={(event) => patch({ closingMeter: event.target.value })} /></label>
             <label className="block text-sm">Cash collected · GHS<input className={input} inputMode="decimal" required value={draft.cashCollected} onChange={(event) => patch({ cashCollected: event.target.value })} /></label>
             <label className="block text-sm">MoMo collected · GHS<input className={input} inputMode="decimal" required value={draft.momoCollected} onChange={(event) => patch({ momoCollected: event.target.value })} /></label>
             <label className="block text-sm">Expenses · GHS<input className={input} inputMode="decimal" value={draft.expenses} onChange={(event) => patch({ expenses: event.target.value })} /></label>
@@ -347,18 +320,9 @@ export default function SupervisorWorkspace() {
           <div className="fixed inset-0 z-50 bg-black p-4">
             <div className="mx-auto flex h-full max-w-md flex-col gap-3">
               <video ref={videoRef} autoPlay playsInline muted className="min-h-0 flex-1 rounded-xl object-cover" />
-              {reading ? (
-                <div className="rounded-xl bg-slate-900 p-4">
-                  <p className="text-sm text-slate-400">AI detected reading</p>
-                  <p className="text-4xl font-bold text-amber-300">{reading}</p>
-                  <button className={`${primary} mt-3`} type="button" onClick={acceptReading}>Use this reading</button>
-                  <button className={`${secondary} mt-2`} type="button" onClick={() => { setReading(""); setPendingImage(""); }}>Retake photo</button>
-                </div>
-              ) : (
-                <button className={primary} disabled={!cameraReady || readingBusy} type="button" onClick={() => void capture()}>
-                  {readingBusy ? "Reading meter…" : cameraReady ? "Capture meter photo" : "Starting camera…"}
-                </button>
-              )}
+              <button className={primary} disabled={!cameraReady || captured} type="button" onClick={capture}>
+                {cameraReady ? "Capture photo" : "Starting camera…"}
+              </button>
               <button className={secondary} type="button" onClick={stopCamera}>Close camera</button>
             </div>
           </div>
