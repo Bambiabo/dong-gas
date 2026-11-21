@@ -25,6 +25,8 @@ export default function SupervisorWorkspace() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [cameraFor, setCameraFor] = useState<"opening" | "closing" | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [pendingImage, setPendingImage] = useState("");
   const [reading, setReading] = useState("");
   const [readingBusy, setReadingBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -35,6 +37,9 @@ export default function SupervisorWorkspace() {
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraFor(null);
+    setCameraReady(false);
+    setPendingImage("");
+    setReading("");
   }, []);
 
   useEffect(() => {
@@ -69,26 +74,50 @@ export default function SupervisorWorkspace() {
   useEffect(() => {
     if (!cameraFor || !videoRef.current) return;
     let active = true;
-    void (async () => {
+    let stream: MediaStream | null = null;
+
+    const start = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-          audio: false,
-        });
+        if (!window.isSecureContext) throw new Error("Camera access requires a secure HTTPS connection.");
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error("This browser does not support live camera capture.");
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false,
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+
         if (!active) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
+
         streamRef.current = stream;
-        videoRef.current!.srcObject = stream;
-        await videoRef.current!.play();
-      } catch {
-        setNotice("Allow camera access to capture the meter photo.");
+        const video = videoRef.current!;
+        video.srcObject = stream;
+        await video.play();
+
+        await new Promise<void>((resolve, reject) => {
+          if (video.readyState >= 2 && video.videoWidth > 0) return resolve();
+          video.onloadeddata = () => resolve();
+          video.onerror = () => reject(new Error("Camera preview could not start."));
+          window.setTimeout(() => reject(new Error("Camera preview timed out.")), 10000);
+        });
+
+        if (active) setCameraReady(true);
+      } catch (error) {
+        if (active) setNotice(error instanceof Error ? error.message : "Camera access is unavailable.");
         stopCamera();
       }
-    })();
+    };
+
+    void start();
     return () => {
       active = false;
+      stream?.getTracks().forEach((track) => track.stop());
     };
   }, [cameraFor, stopCamera]);
 
@@ -108,11 +137,16 @@ export default function SupervisorWorkspace() {
   }
 
   async function capture() {
-    if (!draft || !cameraFor || !videoRef.current) return;
+    if (!draft || !cameraFor || !videoRef.current || !cameraReady) return;
+    const video = videoRef.current;
+    if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+      setNotice("Wait for the camera preview, then try again.");
+      return;
+    }
+
     setReadingBusy(true);
     setNotice("");
     try {
-      const video = videoRef.current;
       const canvas = document.createElement("canvas");
       const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
       canvas.width = Math.round(video.videoWidth * scale);
@@ -121,6 +155,7 @@ export default function SupervisorWorkspace() {
       if (!context) throw new Error("Camera is not ready.");
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const image = canvas.toDataURL("image/jpeg", 0.9);
+      setPendingImage(image);
       const digits = await readMeter(image);
       setReading(digits);
     } catch (error) {
@@ -131,9 +166,10 @@ export default function SupervisorWorkspace() {
   }
 
   function acceptReading() {
-    if (!draft || !cameraFor || !reading) return;
-    patch(cameraFor === "opening" ? { openingImage: "captured", openingMeter: reading } : { closingImage: "captured", closingMeter: reading });
-    setReading("");
+    if (!draft || !cameraFor || !reading || !pendingImage) return;
+    patch(cameraFor === "opening"
+      ? { openingImage: pendingImage, openingMeter: reading }
+      : { closingImage: pendingImage, closingMeter: reading });
     stopCamera();
     setNotice("Meter reading accepted.");
   }
@@ -267,7 +303,7 @@ export default function SupervisorWorkspace() {
             </div>
             <div className="rounded-xl border border-slate-700 p-4">
               <p className="text-sm">Opening meter photo</p>
-              <button className={primary} type="button" onClick={() => { setReading(""); setCameraFor("opening"); }}>Open camera</button>
+              <button className={primary} type="button" onClick={() => { setReading(""); setPendingImage(""); setCameraFor("opening"); }}>Open camera</button>
               {draft.openingImage && <p className="mt-2 text-sm text-emerald-300">Opening photo captured.</p>}
             </div>
             <button className={primary} disabled={busy}>Start shift</button>
@@ -282,7 +318,7 @@ export default function SupervisorWorkspace() {
             </div>
             <div className="rounded-xl border border-slate-700 p-4">
               <p className="text-sm">Closing meter photo</p>
-              <button className={primary} type="button" onClick={() => { setReading(""); setCameraFor("closing"); }}>Open camera</button>
+              <button className={primary} type="button" onClick={() => { setReading(""); setPendingImage(""); setCameraFor("closing"); }}>Open camera</button>
               {draft.closingImage && <p className="mt-2 text-sm text-emerald-300">Closing photo captured.</p>}
             </div>
             <label className="block text-sm">Closing meter · litres<input className={input} inputMode="decimal" required value={draft.closingMeter} onChange={(event) => patch({ closingMeter: event.target.value })} /></label>
@@ -316,10 +352,12 @@ export default function SupervisorWorkspace() {
                   <p className="text-sm text-slate-400">AI detected reading</p>
                   <p className="text-4xl font-bold text-amber-300">{reading}</p>
                   <button className={`${primary} mt-3`} type="button" onClick={acceptReading}>Use this reading</button>
-                  <button className={`${secondary} mt-2`} type="button" onClick={() => { setReading(""); }}>Retake photo</button>
+                  <button className={`${secondary} mt-2`} type="button" onClick={() => { setReading(""); setPendingImage(""); }}>Retake photo</button>
                 </div>
               ) : (
-                <button className={primary} disabled={readingBusy} type="button" onClick={() => void capture()}>{readingBusy ? "Reading meter…" : "Capture meter photo"}</button>
+                <button className={primary} disabled={!cameraReady || readingBusy} type="button" onClick={() => void capture()}>
+                  {readingBusy ? "Reading meter…" : cameraReady ? "Capture meter photo" : "Starting camera…"}
+                </button>
               )}
               <button className={secondary} type="button" onClick={stopCamera}>Close camera</button>
             </div>
