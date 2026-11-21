@@ -780,10 +780,13 @@ export default function SupervisorTerminal() {
                 <div className="mt-5">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <label htmlFor="opening-meter" className="text-[10px] uppercase tracking-wider text-slate-400">Opening meter</label>
-                    <button type="button" disabled={syncingMeter || !online} onClick={() => void syncOpeningMeter()} className="text-[10px] text-amber-300 disabled:opacity-40">{syncingMeter ? "Syncing" : "Resync"}</button>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => patchDraft({ baselineReady: true, openingSource: "Supervisor reset baseline" })} className="text-[10px] text-amber-300">Reset baseline</button>
+                      <button type="button" disabled={syncingMeter || !online} onClick={() => void syncOpeningMeter()} className="text-[10px] text-amber-300 disabled:opacity-40">{syncingMeter ? "Syncing" : "Resync"}</button>
+                    </div>
                   </div>
-                  <input id="opening-meter" readOnly value={draft.openingMeter} className={`${inputCls} text-slate-400`} placeholder="Baseline" required />
-                  <p className="mt-2 text-[10px] leading-5 text-slate-500">{draft.openingSource || "Connect once to load your station baseline."}</p>
+                  <input id="opening-meter" value={draft.openingMeter} onChange={(event) => patchDraft({ openingMeter: event.target.value })} className={inputCls} placeholder="Enter current meter reading" required />
+                  <p className="mt-2 text-[10px] leading-5 text-slate-500">{draft.openingSource || "Enter the current meter reading, then tap Reset baseline."}</p>
                 </div>
               </Card>
               <Card><button type="submit" disabled={busy || scanning || cameraActive || syncingMeter || !draft.baselineReady} className={primaryCls}>{busy ? "Saving opening" : "Lock opening · start shift"}</button></Card>
@@ -869,8 +872,8 @@ export default function SupervisorTerminal() {
               <p className="mt-2 text-[11px] leading-5 text-slate-500">Include the country code, for example 233XXXXXXXXXX. Leave the default to send to the owner.</p>
             </Card>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <button type="button" disabled={exporting} onClick={() => void exportReport(draft.report, false)} className={secondaryCls}>{exporting ? "Preparing…" : "Download PDF"}</button>
-              <button type="button" disabled={exporting} onClick={() => void exportReport(draft.report, true)} className="min-h-12 rounded-xl bg-[#25D366] px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-50">Share on WhatsApp</button>
+              <button type="button" disabled={exporting} onClick={() => { if (draft.report) void exportReport(draft.report, false); }} className={secondaryCls}>{exporting ? "Preparing…" : "Download PDF"}</button>
+              <button type="button" disabled={exporting} onClick={() => { if (draft.report) void exportReport(draft.report, true); }} className="min-h-12 rounded-xl bg-[#25D366] px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-50">Share on WhatsApp</button>
             </div>
             {!confirmNew ? (
               <button type="button" onClick={() => setConfirmNew(true)} className={secondaryCls}>Start next shift</button>
