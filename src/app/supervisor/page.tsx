@@ -114,7 +114,6 @@ export default function SupervisorTerminal() {
   const [message, setMessage] = useState<Message | null>(null);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [syncingMeter, setSyncingMeter] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -458,29 +457,6 @@ export default function SupervisorTerminal() {
     await runOCR(image);
   };
 
-  const syncOpeningMeter = async () => {
-    if (!draft || syncingMeter || actionLock.current) return;
-    if (!navigator.onLine) {
-      notify("info", "Internet is required to resync the station baseline. An already-saved baseline remains available offline.");
-      return;
-    }
-    const pending = records.filter((record) => record.status === "pending");
-    if (pending.length) {
-      notify("info", "Upload pending shifts before resyncing from Supabase. The local previous closing remains your baseline.");
-      return;
-    }
-    setSyncingMeter(true);
-    try {
-      const baseline = await fetchBaseline();
-      patchDraft({ openingMeter: baseline.meter, openingSource: baseline.source, baselineReady: true });
-      notify("success", "Opening baseline synchronized.");
-    } catch (error) {
-      notify("error", errorText(error));
-    } finally {
-      setSyncingMeter(false);
-    }
-  };
-
   const openShift = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!draft || actionLock.current) return;
@@ -780,16 +756,13 @@ export default function SupervisorTerminal() {
                 <div className="mt-5">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <label htmlFor="opening-meter" className="text-[10px] uppercase tracking-wider text-slate-400">Opening meter</label>
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => patchDraft({ baselineReady: true, openingSource: "Supervisor reset baseline" })} className="text-[10px] text-amber-300">Reset baseline</button>
-                      <button type="button" disabled={syncingMeter || !online} onClick={() => void syncOpeningMeter()} className="text-[10px] text-amber-300 disabled:opacity-40">{syncingMeter ? "Syncing" : "Resync"}</button>
-                    </div>
+                    <button type="button" onClick={() => patchDraft({ baselineReady: true, openingSource: "Supervisor reset baseline" })} className="text-[10px] text-amber-300">Reset baseline</button>
                   </div>
                   <input id="opening-meter" value={draft.openingMeter} onChange={(event) => patchDraft({ openingMeter: event.target.value })} className={inputCls} placeholder="Enter current meter reading" required />
                   <p className="mt-2 text-[10px] leading-5 text-slate-500">{draft.openingSource || "Enter the current meter reading, then tap Reset baseline."}</p>
                 </div>
               </Card>
-              <Card><button type="submit" disabled={busy || scanning || cameraActive || syncingMeter || !draft.baselineReady} className={primaryCls}>{busy ? "Saving opening" : "Lock opening · start shift"}</button></Card>
+              <Card><button type="submit" disabled={busy || scanning || cameraActive || !draft.baselineReady} className={primaryCls}>{busy ? "Saving opening" : "Lock opening · start shift"}</button></Card>
             </fieldset>
           </form>
         )}
