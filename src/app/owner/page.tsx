@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import BaselineSettings from './baseline-settings';
 
 type Shift = {
   id: string;
@@ -177,7 +178,6 @@ export default function OwnerDashboard() {
             </form>
           )}
           {notices}
-          <p className="text-sm text-slate-400">Baseline correction is temporarily disabled.</p>
         </section>
       </main>
     );
@@ -206,6 +206,7 @@ export default function OwnerDashboard() {
         </div>
       </header>
       {notices}
+      <BaselineSettings />
       <section aria-live="polite">
         <p>Last successful update: {updated || 'Not yet loaded'}</p>
         {syncError && <p role="alert">{syncError}</p>}
@@ -278,7 +279,6 @@ export default function OwnerDashboard() {
         </table>
         {!visible.length && <p>{updated ? 'No records match these filters.' : 'Reports have not loaded yet.'}</p>}
       </section>
-      <p className="text-sm text-slate-400 print:hidden">Baseline correction is temporarily disabled.</p>
       {photo && (
         <div aria-label="Meter proof" aria-modal="true" className="fixed inset-0 overflow-auto bg-slate-950 p-6 print:hidden" role="dialog">
           <button autoFocus className={button} onClick={() => setPhoto(null)} type="button">Close photo</button>
