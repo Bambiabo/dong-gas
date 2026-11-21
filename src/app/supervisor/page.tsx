@@ -6,7 +6,6 @@ import type { Draft, ShiftReport, StoredReport } from "@/lib/terminal-store";
 import { fetchOpeningBaseline, supervisorError, uploadPendingShifts } from "@/lib/supervisor-service";
 import { ghs, litresText, reportSummary, shiftReference } from "@/lib/terminal-pdf";
 
-const OWNER_WHATSAPP = process.env.NEXT_PUBLIC_OWNER_WHATSAPP ?? "";
 const input = "mt-2 w-full rounded-xl border border-slate-600 bg-slate-950 p-3 text-base text-white focus:outline-2 focus:outline-amber-400";
 const primary = "min-h-12 w-full rounded-xl bg-amber-400 px-5 py-3 text-base font-semibold text-slate-950 disabled:opacity-40";
 const secondary = "min-h-11 w-full rounded-xl border border-slate-600 px-4 py-2 text-sm text-slate-200 disabled:opacity-40";
@@ -225,11 +224,20 @@ export default function SupervisorWorkspace() {
     }
   }
 
-  function sendWhatsApp(report: ShiftReport) {
-    const text = reportSummary(report, true);
-    const phone = OWNER_WHATSAPP.replace(/[^0-9]/g, "");
-    if (phone) window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
-    else setNotice("Owner WhatsApp number is not configured.");
+  async function sendWhatsApp(report: ShiftReport) {
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/whatsapp-contact", { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Owner WhatsApp contact is not available.");
+      const text = reportSummary(report, true);
+      window.open(`https://wa.me/${result.phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not open WhatsApp.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (loading || !draft) {
@@ -293,8 +301,8 @@ export default function SupervisorWorkspace() {
               <p className="mt-2 text-sm">Expected: {ghs(report.expected)} · Accounted: {ghs(report.accounted)}</p>
               <p className="mt-1 text-sm">Variance: {ghs(report.variance)}</p>
             </div>
-            <button className={primary} type="button" onClick={() => sendWhatsApp(report)}>Send report to owner on WhatsApp</button>
-            <button className={secondary} type="button" disabled={!pending} onClick={() => void upload()}>{pending ? `Upload ${pending} pending shift` : "Shift uploaded"}</button>
+            <button className={primary} type="button" disabled={busy} onClick={() => void sendWhatsApp(report)}>Send report to owner on WhatsApp</button>
+            <button className={secondary} type="button" disabled={!pending || busy} onClick={() => void upload()}>{pending ? `Upload ${pending} pending shift` : "Shift uploaded"}</button>
             <button className={secondary} type="button" onClick={() => { const next = createDraft(String(report.price)); setDraft(next); }}>Start next shift</button>
           </div>
         )}
