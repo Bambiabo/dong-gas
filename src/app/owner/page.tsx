@@ -13,8 +13,6 @@ type Shift = {
   momo_collected?: number | string;
   expenses?: number | string;
   variance?: number | string;
-  opening_proof_image?: string;
-  proof_image?: string;
 };
 
 const number = (value: unknown) => (Number.isFinite(Number(value)) ? Number(value) : 0);
@@ -32,7 +30,6 @@ export default function OwnerDashboard() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [search, setSearch] = useState('');
   const [days, setDays] = useState('7');
-  const [photo, setPhoto] = useState<string | null>(null);
   const [updated, setUpdated] = useState('');
   const [syncError, setSyncError] = useState('');
 
@@ -243,7 +240,7 @@ export default function OwnerDashboard() {
         <table className="w-full text-left">
           <thead>
             <tr>
-              {['Date', 'Supervisor', 'Opening meter', 'Closing meter', 'Volume', 'Cash GHS', 'MoMo GHS', 'Expenses GHS', 'Variance GHS', 'Proof'].map((title) => (
+              {['Date', 'Supervisor', 'Opening meter', 'Closing meter', 'Volume', 'Cash GHS', 'MoMo GHS', 'Expenses GHS', 'Variance GHS'].map((title) => (
                 <th className="p-3" key={title}>{title}</th>
               ))}
             </tr>
@@ -264,27 +261,12 @@ export default function OwnerDashboard() {
                   <td className="p-3" key={index}>{value == null ? 'Not recorded' : number(value).toFixed(2)}</td>
                 ))}
                 <td>{shift.variance == null ? 'Not recorded' : number(shift.variance).toFixed(2)}</td>
-                <td>
-                  {[shift.opening_proof_image, shift.proof_image].map((url, index) =>
-                    url ? (
-                      <button className="underline mr-3" key={index} onClick={() => setPhoto(url)} type="button">
-                        {index ? 'Closing' : 'Opening'}
-                      </button>
-                    ) : null,
-                  )}
-                </td>
               </tr>
             ))}
           </tbody>
         </table>
         {!visible.length && <p>{updated ? 'No records match these filters.' : 'Reports have not loaded yet.'}</p>}
       </section>
-      {photo && (
-        <div aria-label="Meter proof" aria-modal="true" className="fixed inset-0 overflow-auto bg-slate-950 p-6 print:hidden" role="dialog">
-          <button autoFocus className={button} onClick={() => setPhoto(null)} type="button">Close photo</button>
-          <img alt="Shift meter proof" className="mx-auto mt-4 max-h-screen max-w-full" src={photo} />
-        </div>
-      )}
     </main>
   );
 }
