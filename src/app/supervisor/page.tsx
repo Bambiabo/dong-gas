@@ -53,15 +53,6 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CameraIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-6 w-6" aria-hidden="true">
-      <path d="M14.5 4h-5L8 7H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-1.5-3Z" />
-      <circle cx="12" cy="13" r="4" />
-    </svg>
-  );
-}
-
 async function prepareOfflineFiles(): Promise<void> {
   if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) {
     throw new Error("Offline reopening is available in the production build.");
@@ -117,17 +108,8 @@ export default function SupervisorTerminal() {
   const [exporting, setExporting] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraStarting, setCameraStarting] = useState(false);
-  const [rearCamera, setRearCamera] = useState(true);
-  const [scanning, setScanning] = useState(false);
-  const [scannedValue, setScannedValue] = useState<string | null>(null);
   const [whatsappNumber, setWhatsappNumber] = useState(OWNER_WHATSAPP);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const cameraRequest = useRef(0);
-  const scanRequest = useRef(0);
   const saveRevision = useRef(0);
   const actionLock = useRef(false);
   const syncLock = useRef(false);
@@ -347,123 +329,13 @@ export default function SupervisorTerminal() {
     };
   }, [loading, recoveryError, syncPending, prepareOffline]);
 
-  useEffect(() => {
-    if (!cameraActive || !videoRef.current || !streamRef.current) return;
-    videoRef.current.srcObject = streamRef.current;
-    void videoRef.current.play().catch(() => undefined);
-  }, [cameraActive, cameraStarting]);
-
-  useEffect(() => {
-    return () => {
-      cameraRequest.current += 1;
-      scanRequest.current += 1;
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-    };
-  }, []);
-
-  const stopCamera = () => {
-    cameraRequest.current += 1;
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setCameraActive(false);
-    setCameraStarting(false);
-  };
-
-  const startCamera = async (rear: boolean) => {
-    stopCamera();
-    if (!navigator.mediaDevices?.getUserMedia) {
-      notify("error", "Camera unavailable. Use HTTPS or localhost and allow camera permission.");
-      return;
-    }
-    const requestId = cameraRequest.current;
-    setCameraActive(true);
-    setCameraStarting(true);
-    setScannedValue(null);
-    try {
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: rear ? { exact: "environment" } : "user" }, audio: false });
-      } catch {
-        if (requestId !== cameraRequest.current) return;
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: rear ? "environment" : "user" }, audio: false });
-      }
-      if (requestId !== cameraRequest.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => undefined);
-      }
-      setCameraStarting(false);
-    } catch (error) {
-      if (requestId !== cameraRequest.current) return;
-      stopCamera();
-      notify("error", `Could not open camera: ${errorText(error)}`);
-    }
-  };
-
-  const runOCR = async (image: string) => {
-    if (!navigator.onLine) {
-      notify("info", "Photo retained offline. Enter the closing meter manually.");
-      return;
-    }
-    const requestId = scanRequest.current;
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 25000);
-    setScanning(true);
-    try {
-      const response = await fetch("/api/ocr", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image }),
-        signal: controller.signal,
-      });
-      const data = (await response.json()) as { digits?: string | number };
-      if (requestId !== scanRequest.current) return;
-      const digits = String(data.digits ?? "").trim().replace(/\D/g, "");
-      if (response.ok && /^\d+$/.test(digits) && Number.isFinite(Number(digits))) {
-        setScannedValue(digits);
-        notify("success", "Review the AI reading against the meter photo.");
-      } else {
-        notify("info", "AI could not read the display clearly. Enter the closing meter manually.");
-      }
-    } catch {
-      if (requestId === scanRequest.current) notify("info", "AI reading is unavailable. Your photo is retained; enter the reading manually.");
-    } finally {
-      window.clearTimeout(timeout);
-      if (requestId === scanRequest.current) setScanning(false);
-    }
-  };
-
-  const capturePhoto = async (opening: boolean) => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 2 || !video.videoWidth) {
-      notify("info", "Wait for the camera preview.");
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    const scale = Math.min(1, 1600 / video.videoWidth);
-    canvas.width = Math.round(video.videoWidth * scale);
-    canvas.height = Math.round(video.videoHeight * scale);
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const image = canvas.toDataURL("image/jpeg", 0.85);
-    patchDraft(opening ? { openingImage: image } : { closingImage: image });
-    stopCamera();
-    await runOCR(image);
-  };
-
   const openShift = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!draft || actionLock.current) return;
     const price = Number(draft.fuelPrice);
     const meter = Number(draft.openingMeter);
-    if (!draft.supervisorName.trim() || !draft.openingImage || !draft.baselineReady || !draft.fuelPrice.trim() || !draft.openingMeter.trim() || !Number.isFinite(price) || !Number.isFinite(meter) || price <= 0 || meter < 0) {
-      notify("error", "Enter the supervisor name, capture the opening photo, and confirm a valid price and baseline.");
+    if (!draft.supervisorName.trim() || !draft.baselineReady || !draft.fuelPrice.trim() || !draft.openingMeter.trim() || !Number.isFinite(price) || !Number.isFinite(meter) || price <= 0 || meter < 0) {
+      notify("error", "Enter the supervisor name, opening meter, and a valid fuel price.");
       return;
     }
     actionLock.current = true;
@@ -471,8 +343,6 @@ export default function SupervisorTerminal() {
     const next: Draft = { ...draft, supervisorName: draft.supervisorName.trim(), stage: "CLOSING", openedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     try {
       await persist(next);
-      stopCamera();
-      setScannedValue(null);
       setDraft(next);
       notify("success", "Opening saved on this device. Return to this screen when the shift ends.");
       void navigator.storage?.persist?.().catch(() => false);
@@ -493,8 +363,8 @@ export default function SupervisorTerminal() {
     const cash = Number(draft.cashCollected);
     const momo = Number(draft.momoCollected);
     const expenses = Number(draft.expenses || 0);
-    if (!draft.openedAt || !draft.closingImage || !draft.closingMeter.trim() || !draft.cashCollected.trim() || !draft.momoCollected.trim() || ![openM, closeM, price, cash, momo, expenses].every(Number.isFinite) || price <= 0 || openM < 0 || closeM <= openM || cash < 0 || momo < 0 || expenses < 0) {
-      notify("error", "Capture the closing photo and check your readings and collections. Closing meter must exceed opening meter. Use 0 for empty collection amounts.");
+    if (!draft.openedAt || !draft.closingMeter.trim() || !draft.cashCollected.trim() || !draft.momoCollected.trim() || ![openM, closeM, price, cash, momo, expenses].every(Number.isFinite) || price <= 0 || openM < 0 || closeM <= openM || cash < 0 || momo < 0 || expenses < 0) {
+      notify("error", "Check the closing meter and collections. Closing meter must exceed opening meter. Use 0 for empty collection amounts.");
       return;
     }
     actionLock.current = true;
@@ -524,7 +394,6 @@ export default function SupervisorTerminal() {
     const next: Draft = { ...draft, stage: "REPORT", report, updatedAt: new Date().toISOString() };
     try {
       await saveCompletedDraft(next);
-      stopCamera();
       setDraft(next);
       setLastSavedAt(next.updatedAt);
       setSaveStatus("saved");
@@ -586,7 +455,6 @@ export default function SupervisorTerminal() {
       setDraft(next);
       setConfirmNew(false);
       setRestored(false);
-      setScannedValue(null);
       notify("success", "Next shift ready. Previous reports and pending uploads are retained.");
     } catch (error) {
       notify("error", errorText(error));
@@ -594,63 +462,6 @@ export default function SupervisorTerminal() {
       actionLock.current = false;
       setBusy(false);
     }
-  };
-
-  const renderScanner = (opening: boolean) => {
-    if (!draft) return null;
-    const image = opening ? draft.openingImage : draft.closingImage;
-    return (
-      <Card>
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold">{opening ? "Opening" : "Closing"} meter photo</h3>
-            <p className="mt-1 text-xs leading-5 text-slate-500">Keep all digits clear and visible.</p>
-          </div>
-          <span className="shrink-0 rounded-full border border-slate-700 px-2 py-1 text-[9px] uppercase tracking-wider text-slate-400">
-            {online ? "AI assisted" : "Offline capture"}
-          </span>
-        </div>
-        {!image && !cameraActive && (
-          <button type="button" onClick={() => void startCamera(rearCamera)} className="flex min-h-44 w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700 bg-slate-950/30 text-sm text-slate-300 transition hover:border-amber-400/60">
-            <span className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-amber-300"><CameraIcon /></span>
-            Open camera
-          </button>
-        )}
-        {cameraActive && (
-          <div className="space-y-3">
-            <div className="relative overflow-hidden rounded-xl bg-black">
-              <video ref={videoRef} autoPlay playsInline muted className="aspect-video w-full object-cover" />
-              <div className="pointer-events-none absolute inset-6 rounded-lg border border-amber-400/70" />
-              {cameraStarting && <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs">Opening camera</div>}
-              <button type="button" disabled={cameraStarting} onClick={() => { const next = !rearCamera; setRearCamera(next); void startCamera(next); }} className="absolute right-3 top-3 rounded-lg bg-black/75 px-3 py-2.5 text-xs">Switch camera</button>
-            </div>
-            <button type="button" disabled={cameraStarting} onClick={() => void capturePhoto(opening)} className={primaryCls}>Capture meter photo</button>
-            <button type="button" onClick={stopCamera} className={secondaryCls}>Cancel</button>
-          </div>
-        )}
-        {image && !cameraActive && (
-          <div className="space-y-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image} alt={opening ? "Opening" : "Closing"} className="max-h-72 w-full rounded-xl border border-slate-800 bg-black object-contain" />
-            <p className="text-xs text-emerald-300">Photo captured</p>
-            {scanning && <p className="rounded-xl bg-amber-400/5 p-3 text-xs text-amber-200">Reading meter with AI</p>}
-            {scannedValue && !scanning && (
-              <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4">
-                <p className={labelCls}>AI detected reading</p>
-                <p className="break-all font-mono text-3xl text-amber-300">{scannedValue}</p>
-                {!opening && (
-                  <button type="button" onClick={() => { patchDraft({ closingMeter: scannedValue }); setScannedValue(null); }} className={`${primaryCls} mt-3`}>Accept reading</button>
-                )}
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" disabled={scanning} onClick={() => { patchDraft(opening ? { openingImage: null } : { closingImage: null }); setScannedValue(null); void startCamera(rearCamera); }} className={secondaryCls}>Retake</button>
-              <button type="button" disabled={scanning || !online} onClick={() => void runOCR(image)} className={secondaryCls}>Retry AI reading</button>
-            </div>
-          </div>
-        )}
-      </Card>
-    );
   };
 
   if (loading || recoveryError || !draft) {
@@ -694,7 +505,7 @@ export default function SupervisorTerminal() {
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-amber-300/90">{shiftReference(draft.shiftId)}</p>
                 <h2 className="mt-2 text-lg font-semibold">{draft.stage === "OPENING" ? "Open your shift" : draft.stage === "CLOSING" ? "Shift workspace" : "Shift report"}</h2>
-                <p className="mt-1 text-xs leading-5 text-slate-400">{draft.stage === "OPENING" ? "Verify the baseline and capture opening evidence." : draft.stage === "CLOSING" ? "Opening saved. Complete closing details at shift end. Saved locally first. Upload status is shown separately." : "Review the completed shift, download the PDF, share it, or start the next shift."}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-400">{draft.stage === "OPENING" ? "Enter the opening meter and start the shift." : draft.stage === "CLOSING" ? "Opening saved. Complete closing details at shift end. Saved locally first. Upload status is shown separately." : "Review the completed shift, download the PDF, share it, or start the next shift."}</p>
               </div>
               <span className="shrink-0 rounded-lg bg-white/5 px-2.5 py-1.5 text-xs text-slate-400">{stepIndex + 1} / 3</span>
             </div>
@@ -745,7 +556,6 @@ export default function SupervisorTerminal() {
                 <label htmlFor="supervisor" className={labelCls}>Supervisor name</label>
                 <input id="supervisor" autoComplete="name" maxLength={120} required value={draft.supervisorName} onChange={(event) => patchDraft({ supervisorName: event.target.value })} placeholder="Enter your full name" className={inputCls} />
               </Card>
-              {renderScanner(true)}
               <Card>
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                   <div>
@@ -762,7 +572,7 @@ export default function SupervisorTerminal() {
                   <p className="mt-2 text-[10px] leading-5 text-slate-500">{draft.openingSource || "Enter the current meter reading, then tap Reset baseline."}</p>
                 </div>
               </Card>
-              <Card><button type="submit" disabled={busy || scanning || cameraActive || !draft.baselineReady} className={primaryCls}>{busy ? "Saving opening" : "Lock opening · start shift"}</button></Card>
+              <Card><button type="submit" disabled={busy || !draft.baselineReady} className={primaryCls}>{busy ? "Saving opening" : "Lock opening · start shift"}</button></Card>
             </fieldset>
           </form>
         )}
@@ -779,7 +589,6 @@ export default function SupervisorTerminal() {
                 </dl>
                 <p className="mt-2 text-[11px] leading-5 text-slate-500">You may leave and return using this browser. Complete the remaining fields when the shift ends.</p>
               </Card>
-              {renderScanner(false)}
               <Card className="space-y-5">
                 <div>
                   <label htmlFor="closing-meter" className={labelCls}>Closing meter · litres</label>
@@ -801,7 +610,7 @@ export default function SupervisorTerminal() {
                   <p className="mt-2 text-[11px] leading-5 text-slate-500">Enter expenses paid from shift takings. Cash should be the amount remaining after these expenses, excluding opening float or personal money.</p>
                 </div>
               </Card>
-              <Card><button type="submit" disabled={busy || scanning || cameraActive} className={primaryCls}>{busy ? "Saving shift" : navigator.onLine ? "Close shift · queue upload" : "Save completed shift offline"}</button></Card>
+              <Card><button type="submit" disabled={busy} className={primaryCls}>{busy ? "Saving shift" : navigator.onLine ? "Close shift · queue upload" : "Save completed shift offline"}</button></Card>
             </fieldset>
           </form>
         )}
